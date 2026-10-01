@@ -166,12 +166,19 @@ int main(int argc, char** argv) {
 
     // --- 主循环 ---
     // 两个职责：
-    //   1. client.PollOnce() → 内部调 MqttSource::Poll() → mosquitto_loop() 驱动网络
+    //   1. client.PollOnce() → 内部调 MqttSource::Poll() → 从待投递队列取一条命令
     //   2. 每 2 秒主动上报一次遥测
     //
-    // 【关键】这里的 20ms 间隔不能随意放大。
-    // 因为 QoS 1 的消息确认（PUBACK）也在 mosquitto_loop() 里处理，
-    // 如果主循环几百毫秒才转一圈，broker 会以为你没收到而反复重发。
+    // 【注意】网络收发【不在】这个循环里了。
+    // 用 mosquitto_loop_start() 之后，收发消息、心跳、自动重连全部由
+    // 库自己的后台线程负责，主循环只做"取数据 + 上报"两件事。
+    // （这个文件最早写的是"20ms 间隔不能放大，否则 PUBACK 处理不过来"，
+    //   那是起手时用手动 mosquitto_loop() 的结论；改用 loop_start 之后
+    //   已经不再成立，留着只会误导人，所以删掉。）
+    //
+    // 那 20ms 这个间隔现在还有意义吗？有，但含义变了：
+    //   它只决定"我们多快响应一条下发命令"。20ms ≈ 几乎无延迟。
+    //   就算改成 500ms，也只是命令晚半秒被执行，不影响连接可靠性。
     std::atomic<int> tick{0};
     while (!g_should_exit.load()) {
         client.PollOnce();

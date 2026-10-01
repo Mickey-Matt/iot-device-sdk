@@ -3,7 +3,7 @@
 一套用于**设备数据接入与链路排障**的 C++17 工具集：通过统一的设备客户端接口采集数据、解析 JSON 报文、输出结构化日志，并支持串口与模拟数据源互换。
 
 > **项目起点**：为定位"设备数据丢失、解析失败"这类现场问题而开发。
-> **当前状态**：v0.1 — 串口/模拟数据源 + 报文解析 + 结构化日志 + 排障统计。MQTT 接入见 roadmap。
+> **当前状态**：v0.2 — 数据源抽象 + 串口/模拟/MQTT 三种数据源 + 报文解析 + 结构化日志 + 排障统计 + 断线自动重连。
 
 ---
 
@@ -29,22 +29,30 @@
 ### 三步跑起来
 
 ```bash
-mkdir build && cd build
-cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug
-ninja
+# 在 iot-device-sdk 目录下
+cmake -B build -G Ninja -S .     # 生成构建文件（第一次跑一次即可）
+cmake --build build              # 编译（每次改完代码跑这个）
+
+# 另开一个窗口启动 broker，保持不关
+mosquitto -p 1883 -v
+
+# 回到项目窗口运行
+./build/mqtt_demo.exe
 ```
+
+> 详细的环境验证步骤（7 关，含每关的失败排查）见 `../学习路线/01-环境通关清单.md`。
 
 ### 三个核心命令
 
 ```bash
 # 1. 用模拟数据源跑通全流程（不需要任何硬件）
-./iot-debug mock 500
+./build/iot-debug.exe mock 500
 
 # 2. 查看本机可用串口
-./iot-debug list
+./build/iot-debug.exe list
 
 # 3. 读取真实串口（115200 波特率）
-./iot-debug serial COM3 115200
+./build/iot-debug.exe serial COM3 115200
 ```
 
 **没有硬件也能完整跑通**——这是刻意的设计：数据源被抽象成接口，模拟器和真实串口可以互换，因此开发、测试、演示都不依赖硬件。
@@ -53,10 +61,10 @@ ninja
 
 ```bash
 # 从文件解析（推荐：命令行传 JSON 会被 shell 吃掉引号）
-./iot-debug parse --file samples/good_message.json
+./build/iot-debug.exe parse --file samples/good_message.json
 
 # 故意解析一个坏报文，看错误定位
-./iot-debug parse --file samples/broken_message.json
+./build/iot-debug.exe parse --file samples/broken_message.json
 ```
 
 输出示例（坏报文）：
@@ -72,9 +80,10 @@ ninja
 ### 运行测试
 
 ```bash
+cd build
 ctest --output-on-failure
 # 或直接运行
-./iotd_tests
+./iotd_tests.exe
 ```
 
 ---
@@ -111,9 +120,10 @@ iot-device-sdk/
 ```text
                     IDataSource  (抽象接口)
                           ▲
-          ┌───────────────┴───────────────┐
-    MockSource                     SerialPortSource
-   （无硬件自测 / 测试注入）        （真实串口，Windows API）
+          ┌───────────────┼───────────────┐
+    MockSource      SerialPortSource     MqttSource
+  （无硬件自测 /      （真实串口，      （接入 broker，
+    测试注入）         Windows API）      上行发布+下行订阅）
                           │
                           ▼
                     DeviceClient
@@ -121,7 +131,7 @@ iot-device-sdk/
                           │
                           ▼
                   TelemetryHandler
-          （当前：打印+落盘；未来：发 MQTT）
+        （示例里：打印+落盘；也可改成发 MQTT / 写数据库）
 ```
 
 **设计要点**：`DeviceClient` 只依赖 `IDataSource` 接口，不知道数据从哪来。因此：
