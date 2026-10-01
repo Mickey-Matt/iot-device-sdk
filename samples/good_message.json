@@ -1,0 +1,8 @@
+{
+  "device_id": "fish-tank-01",
+  "timestamp_ms": 1790000000000,
+  "temp": 25.6,
+  "humid": 62.5,
+  "light_lux": 420,
+  "note": "鱼缸一号 · 正常上报"
+}
