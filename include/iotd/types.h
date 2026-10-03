@@ -29,6 +29,10 @@ struct SensorReading {
     double temperature_c = 0.0; // 温度，单位摄氏度
     double humidity_pct = 0.0;  // 湿度，单位百分比
     int light_lux = 0;          // 光照，单位勒克斯(lux)
+                                // 这里用 int 而不是 int32_t：光照只在 0~几万 之间，
+                                // int 在任何平台都够放，不需要关心具体几个字节。
+                                // 凡是"要跨平台传输或在程序间传递"的量（如时间戳）
+                                // 才必须用固定宽度类型，见下面 timestamp_ms。
 
     // = 0.0 这种写法叫"默认成员初始化器"（C++11）。
     // 它的作用是：即使你写 SensorReading r; 不做任何初始化，
@@ -43,6 +47,12 @@ struct SensorReading {
 struct DeviceMessage {
     std::string device_id;         // 设备编号，例如 "fish-tank-01"
     std::int64_t timestamp_ms = 0; // Unix 毫秒时间戳
+    // 为什么时间戳必须写明是 64 位？因为 int 的大小由平台决定（常见 4 字节，
+    // 最大约 21 亿），而毫秒时间戳现在是 1.7 万亿级别，用 int 直接溢出。
+    // （你可能听过"2038 年问题"——那是秒级时间戳撞上 32 位上限于 2038 年到期，
+    // 毫秒级更早，1970 年 1 月就撞了，所以这里必须自己写清楚。）
+    // int64_t 明确表示"8 字节有符号"，换平台也不会变。
+    // 这也是上面 #include <cstdint> 唯一的原因。
     SensorReading reading;         // 嵌套一个 SensorReading
 
     // 结构体嵌套结构体，是表达"一个东西包含另一个东西"的最自然方式。
