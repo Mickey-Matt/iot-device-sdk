@@ -24,6 +24,13 @@ else()
     add_link_options(-static-libgcc -static-libstdc++)
 endif()
 
+# 让 CMake 在 build/ 目录里生成 compile_commands.json。
+# 这个文件记录"每个 .cpp 到底是拿哪条完整命令编译的"（编译器路径、-I 头文件
+# 目录、-std=c++17、所有宏）。VSCode 的 C/C++ 插件靠它做代码补全和跳转，
+# 于是 CMakeLists.txt 成了编译设置的唯一来源，不用再手写 c_cpp_properties.json。
+# 它只影响生成的文件，不影响编译出的 exe。
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # ---------------------------------------------------------------------------
 # 查找 libmosquitto（第二期新增）
 #
