@@ -19,16 +19,16 @@
 #include <string>
 
 namespace iotd {
-// namespace 的作用：把名字关进"iotd"这个盒子里，避免和别人的 SensorReading 撞名。
-// 你以后在面试里会被问"为什么 C++ 要有命名空间"——这就是答案。
+// namespace 的作用：把名字关进"iotd"这个盒子里，避免和别人的 SensorReading
+// 撞名。 你以后在面试里会被问"为什么 C++ 要有命名空间"——这就是答案。
 
 // ---------------------------------------------------------------------------
 // SensorReading：一条传感器读数。这是全项目最核心的数据结构。
 // ---------------------------------------------------------------------------
 struct SensorReading {
-    double temperature_c = 0.0;  // 温度，单位摄氏度
-    double humidity_pct = 0.0;   // 湿度，单位百分比
-    int light_lux = 0;           // 光照，单位勒克斯(lux)
+    double temperature_c = 0.0; // 温度，单位摄氏度
+    double humidity_pct = 0.0;  // 湿度，单位百分比
+    int light_lux = 0;          // 光照，单位勒克斯(lux)
 
     // = 0.0 这种写法叫"默认成员初始化器"（C++11）。
     // 它的作用是：即使你写 SensorReading r; 不做任何初始化，
@@ -41,9 +41,9 @@ struct SensorReading {
 // 报文里除了传感器数据，还有"是谁发的"和"什么时候发的"。
 // ---------------------------------------------------------------------------
 struct DeviceMessage {
-    std::string device_id;       // 设备编号，例如 "fish-tank-01"
+    std::string device_id;         // 设备编号，例如 "fish-tank-01"
     std::int64_t timestamp_ms = 0; // Unix 毫秒时间戳
-    SensorReading reading;       // 嵌套一个 SensorReading
+    SensorReading reading;         // 嵌套一个 SensorReading
 
     // 结构体嵌套结构体，是表达"一个东西包含另一个东西"的最自然方式。
     // 面试时会问"struct 和 class 的区别"——在 C++ 里只有一个区别：
@@ -54,11 +54,11 @@ struct DeviceMessage {
 // 主题拼接工具：MQTT 的主题形如 dev/{设备号}/up
 // 第二阶段接入 MQTT 时会用到，现在先放好。
 // ---------------------------------------------------------------------------
-inline std::string BuildUpTopic(const std::string& device_id) {
+inline std::string BuildUpTopic(const std::string &device_id) {
     return "dev/" + device_id + "/up";
 }
 
-inline std::string BuildCmdTopic(const std::string& device_id) {
+inline std::string BuildCmdTopic(const std::string &device_id) {
     return "dev/" + device_id + "/cmd";
 }
 
@@ -68,4 +68,4 @@ inline std::string BuildCmdTopic(const std::string& device_id) {
 // 这些定义是一样的，请只保留一份。
 // 面试高频题："头文件里能不能写函数定义？" —— 能，但必须加 inline。
 
-}  // namespace iotd
+} // namespace iotd
