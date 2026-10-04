@@ -130,24 +130,24 @@ private:
         }
 
         switch (Peek()) {
-        case '{': return ParseObject();
-        case '[': return ParseArray();
-        case '"': return JsonValue(ParseString());
-        case 't':
-            if (MatchLiteral("true"))
-                return JsonValue(true);
-            Fail("无法识别的字面量");
-        case 'f':
-            if (MatchLiteral("false"))
-                return JsonValue(false);
-            Fail("无法识别的字面量");
-        case 'n':
-            if (MatchLiteral("null"))
-                return JsonValue(); // 默认构造即 Null
-            Fail("无法识别的字面量");
-        default:
-            // 剩下只可能是数字
-            return JsonValue(ParseNumber());
+            case '{': return ParseObject();
+            case '[': return ParseArray();
+            case '"': return JsonValue(ParseString());
+            case 't':
+                if (MatchLiteral("true"))
+                    return JsonValue(true);
+                Fail("无法识别的字面量");
+            case 'f':
+                if (MatchLiteral("false"))
+                    return JsonValue(false);
+                Fail("无法识别的字面量");
+            case 'n':
+                if (MatchLiteral("null"))
+                    return JsonValue(); // 默认构造即 Null
+                Fail("无法识别的字面量");
+            default:
+                // 剩下只可能是数字
+                return JsonValue(ParseNumber());
         }
     }
 
@@ -241,13 +241,13 @@ private:
                 }
                 char esc = text_[pos_++];
                 switch (esc) {
-                case '"': out.push_back('"'); break;
-                case '\\': out.push_back('\\'); break;
-                case '/': out.push_back('/'); break;
-                case 'n': out.push_back('\n'); break;
-                case 'r': out.push_back('\r'); break;
-                case 't': out.push_back('\t'); break;
-                default: Fail("不支持的转义字符");
+                    case '"': out.push_back('"'); break;
+                    case '\\': out.push_back('\\'); break;
+                    case '/': out.push_back('/'); break;
+                    case 'n': out.push_back('\n'); break;
+                    case 'r': out.push_back('\r'); break;
+                    case 't': out.push_back('\t'); break;
+                    default: Fail("不支持的转义字符");
                 }
                 continue;
             }
@@ -302,65 +302,65 @@ void Indent(std::string& out, int depth) {
 
 void DumpValue(const JsonValue& value, std::string& out, int depth) {
     switch (value.type) {
-    case JsonValue::Type::Null: out += "null"; break;
-    case JsonValue::Type::Bool: out += value.AsBool() ? "true" : "false"; break;
-    case JsonValue::Type::Number: {
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%.3f", value.AsNumber());
-        out += buf;
-        break;
-    }
-    case JsonValue::Type::String:
-        out += '"';
-        for (char c : value.AsString()) {
-            if (c == '"' || c == '\\')
-                out.push_back('\\');
-            if (c == '\n') {
-                out += "\\n";
-                continue;
+        case JsonValue::Type::Null: out += "null"; break;
+        case JsonValue::Type::Bool: out += value.AsBool() ? "true" : "false"; break;
+        case JsonValue::Type::Number: {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.3f", value.AsNumber());
+            out += buf;
+            break;
+        }
+        case JsonValue::Type::String:
+            out += '"';
+            for (char c : value.AsString()) {
+                if (c == '"' || c == '\\')
+                    out.push_back('\\');
+                if (c == '\n') {
+                    out += "\\n";
+                    continue;
+                }
+                out.push_back(c);
             }
-            out.push_back(c);
-        }
-        out += '"';
-        break;
-    case JsonValue::Type::Object: {
-        const auto& obj = std::get<Object>(value.data);
-        if (obj.empty()) {
-            out += "{}";
+            out += '"';
+            break;
+        case JsonValue::Type::Object: {
+            const auto& obj = std::get<Object>(value.data);
+            if (obj.empty()) {
+                out += "{}";
+                break;
+            }
+            out += "{\n";
+            std::size_t i = 0;
+            for (const auto& kv : obj) {
+                Indent(out, depth + 1);
+                out += '"' + kv.first + "\": ";
+                DumpValue(kv.second, out, depth + 1);
+                if (++i < obj.size())
+                    out += ',';
+                out += '\n';
+            }
+            Indent(out, depth);
+            out += '}';
             break;
         }
-        out += "{\n";
-        std::size_t i = 0;
-        for (const auto& kv : obj) {
-            Indent(out, depth + 1);
-            out += '"' + kv.first + "\": ";
-            DumpValue(kv.second, out, depth + 1);
-            if (++i < obj.size())
-                out += ',';
-            out += '\n';
-        }
-        Indent(out, depth);
-        out += '}';
-        break;
-    }
-    case JsonValue::Type::Array: {
-        const auto& arr = std::get<Array>(value.data);
-        if (arr.empty()) {
-            out += "[]";
+        case JsonValue::Type::Array: {
+            const auto& arr = std::get<Array>(value.data);
+            if (arr.empty()) {
+                out += "[]";
+                break;
+            }
+            out += "[\n";
+            for (std::size_t i = 0; i < arr.size(); ++i) {
+                Indent(out, depth + 1);
+                DumpValue(arr[i], out, depth + 1);
+                if (i + 1 < arr.size())
+                    out += ',';
+                out += '\n';
+            }
+            Indent(out, depth);
+            out += ']';
             break;
         }
-        out += "[\n";
-        for (std::size_t i = 0; i < arr.size(); ++i) {
-            Indent(out, depth + 1);
-            DumpValue(arr[i], out, depth + 1);
-            if (i + 1 < arr.size())
-                out += ',';
-            out += '\n';
-        }
-        Indent(out, depth);
-        out += ']';
-        break;
-    }
     }
 }
 } // namespace
