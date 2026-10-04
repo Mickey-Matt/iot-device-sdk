@@ -54,7 +54,7 @@ std::string MakeClientId(const std::string& prefix) {
     return prefix + "-" + std::to_string(static_cast<long long>(us));
 }
 
-}  // namespace
+} // namespace
 
 // ===========================================================================
 // 构造与析构
@@ -73,8 +73,7 @@ MqttSource::~MqttSource() {
 }
 
 std::string MqttSource::Name() const {
-    return "MqttSource(" + config_.broker_host + ":" +
-           std::to_string(config_.broker_port) + ")";
+    return "MqttSource(" + config_.broker_host + ":" + std::to_string(config_.broker_port) + ")";
 }
 
 std::string MqttSource::UpTopic() const {
@@ -127,8 +126,7 @@ bool MqttSource::Open(std::string& error) {
     // --- 第 3 步：鉴权（可选）---
     if (!config_.username.empty()) {
         ::mosquitto_username_pw_set(mosq_, config_.username.c_str(),
-                                    config_.password.empty() ? nullptr
-                                                             : config_.password.c_str());
+                                    config_.password.empty() ? nullptr : config_.password.c_str());
         // 注意这里传的是 config_ 里 std::string 的指针。
         // mosquitto 内部会拷贝它，所以 config_ 生命周期 >= mosq_ 就没问题
         // —— 我们的 config_ 是成员变量，天然满足。
@@ -139,8 +137,7 @@ bool MqttSource::Open(std::string& error) {
     //
     // 【单位是秒】文档原文："reconnect_delay - the number of seconds to wait
     // between reconnects." 传毫秒数值进去会变成天文数字的等待。
-    ::mosquitto_reconnect_delay_set(mosq_,
-                                    static_cast<unsigned int>(config_.reconnect_delay_sec),
+    ::mosquitto_reconnect_delay_set(mosq_, static_cast<unsigned int>(config_.reconnect_delay_sec),
                                     static_cast<unsigned int>(config_.reconnect_delay_max_sec),
                                     /*reconnect_exponential_backoff=*/true);
 
@@ -150,7 +147,7 @@ bool MqttSource::Open(std::string& error) {
     // async 版本只负责"把请求发出去"，结果由连接回调告诉我们。
     ++stats_.connect_attempts;
     LOG_INFO("正在连接 MQTT broker " << config_.broker_host << ":" << config_.broker_port
-                                      << " client_id=" << config_.client_id);
+                                     << " client_id=" << config_.client_id);
 
     const int rc = ::mosquitto_connect_async(mosq_, config_.broker_host.c_str(),
                                              config_.broker_port, config_.keepalive_sec);
@@ -228,9 +225,9 @@ void MqttSource::Close() {
         snapshot = stats_;
     }
     LOG_INFO("MQTT 已断开：" << Name() << "（统计：连接成功 " << snapshot.connect_success
-                             << " 次，收到 " << snapshot.messages_received
-                             << " 条，发布成功 " << snapshot.publish_ok
-                             << " 条，发布失败 " << snapshot.publish_failed << " 条）");
+                             << " 次，收到 " << snapshot.messages_received << " 条，发布成功 "
+                             << snapshot.publish_ok << " 条，发布失败 " << snapshot.publish_failed
+                             << " 条）");
 }
 
 // ===========================================================================
@@ -274,19 +271,18 @@ bool MqttSource::PublishTelemetry(const SensorReading& reading, std::string& err
     // 这里刻意不用 json::Dump —— 因为要演示"设备侧怎么产生报文"，
     // 而且真实嵌入式设备也是这么一位一位拼出来的（省内存）。
     char buf[256];
-    std::snprintf(buf, sizeof(buf),
-                  R"({"device_id":"%s","timestamp_ms":%lld,"temp":%.2f,"humid":%.2f,"light_lux":%d})",
-                  config_.device_id.c_str(),
-                  static_cast<long long>(
-                      std::chrono::duration_cast<std::chrono::milliseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count()),
-                  reading.temperature_c, reading.humidity_pct, reading.light_lux);
+    std::snprintf(
+        buf, sizeof(buf),
+        R"({"device_id":"%s","timestamp_ms":%lld,"temp":%.2f,"humid":%.2f,"light_lux":%d})",
+        config_.device_id.c_str(),
+        static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count()),
+        reading.temperature_c, reading.humidity_pct, reading.light_lux);
     return Publish(UpTopic(), buf, error);
 }
 
-bool MqttSource::Publish(const std::string& topic, const std::string& payload,
-                         std::string& error) {
+bool MqttSource::Publish(const std::string& topic, const std::string& payload, std::string& error) {
     if (mosq_ == nullptr) {
         error = "MqttSource 尚未打开";
         ++stats_.publish_failed;
@@ -311,9 +307,9 @@ bool MqttSource::Publish(const std::string& topic, const std::string& payload,
     //   payload     载荷指针（二进制安全，所以必须给长度）
     //   qos         服务质量等级
     //   retain      是否保留（true 时 broker 会存住最后一条，新订阅者立刻收到）
-    const int rc = ::mosquitto_publish(mosq_, /*mid=*/nullptr, topic.c_str(),
-                                       static_cast<int>(payload.size()), payload.c_str(),
-                                       config_.qos, /*retain=*/false);
+    const int rc =
+        ::mosquitto_publish(mosq_, /*mid=*/nullptr, topic.c_str(), static_cast<int>(payload.size()),
+                            payload.c_str(), config_.qos, /*retain=*/false);
     if (rc != MOSQ_ERR_SUCCESS) {
         error = std::string("发布到 ") + topic + " 失败：" + ::mosquitto_strerror(rc);
         {
@@ -373,7 +369,7 @@ void MqttSource::HandleConnect(int rc) {
         //   3 = 服务不可用
         //   4 = 用户名或密码错误     ← 现场最常见
         //   5 = 未授权
-        static const char* kReason[] = {"成功", "协议版本不支持", "客户端 ID 被拒绝",
+        static const char* kReason[] = {"成功",       "协议版本不支持",   "客户端 ID 被拒绝",
                                         "服务不可用", "用户名或密码错误", "未授权"};
         const char* reason = (rc >= 0 && rc <= 5) ? kReason[rc] : "未知原因";
         LOG_ERROR("broker 拒绝连接（码 " << rc << "：" << reason << "）");
@@ -393,8 +389,8 @@ void MqttSource::HandleConnect(int rc) {
         std::lock_guard<std::mutex> lock(mutex_);
         ++stats_.connect_success;
     }
-    LOG_INFO("已连接到 broker：" << config_.broker_host << ":" << config_.broker_port
-                                 << "（第 " << GetStats().connect_success << " 次成功）");
+    LOG_INFO("已连接到 broker：" << config_.broker_host << ":" << config_.broker_port << "（第 "
+                                 << GetStats().connect_success << " 次成功）");
 
     // 唤醒 Open() 里等待的主线程
     {
@@ -413,8 +409,7 @@ void MqttSource::HandleConnect(int rc) {
     // 这是很多人写 MQTT 客户端时"重连后收不到消息"的根因。
     // -----------------------------------------------------------------------
     const std::string topic = CommandTopic();
-    const int sub_rc = ::mosquitto_subscribe(mosq_, /*mid=*/nullptr, topic.c_str(),
-                                             config_.qos);
+    const int sub_rc = ::mosquitto_subscribe(mosq_, /*mid=*/nullptr, topic.c_str(), config_.qos);
     if (sub_rc != MOSQ_ERR_SUCCESS) {
         LOG_ERROR("订阅 " << topic << " 失败：" << ::mosquitto_strerror(sub_rc));
     } else {
@@ -489,4 +484,4 @@ void MqttSource::OnCommand(const std::string& topic, const std::string& payload)
     LOG_INFO("[默认命令处理] " << topic << " -> " << payload);
 }
 
-}  // namespace iotd
+} // namespace iotd

@@ -23,14 +23,14 @@ int g_passed = 0;
 int g_failed = 0;
 
 // 断言宏：条件不成立就打印"哪个文件、哪一行、期望什么"
-#define CHECK(cond)                                                          \
-    do {                                                                     \
-        if (cond) {                                                          \
-            ++g_passed;                                                      \
-        } else {                                                             \
-            ++g_failed;                                                      \
-            std::printf("  [失败] %s:%d  条件不成立: %s\n", __FILE__, __LINE__, #cond); \
-        }                                                                    \
+#define CHECK(cond)                                                                                \
+    do {                                                                                           \
+        if (cond) {                                                                                \
+            ++g_passed;                                                                            \
+        } else {                                                                                   \
+            ++g_failed;                                                                            \
+            std::printf("  [失败] %s:%d  条件不成立: %s\n", __FILE__, __LINE__, #cond);            \
+        }                                                                                          \
     } while (false)
 
 // 比较两个 double 是否近似相等。
@@ -44,9 +44,8 @@ bool NearlyEqual(double a, double b, double eps = 1e-9) {
 
 void TestValidMessage() {
     std::printf("[测试] 正常报文解析\n");
-    const std::string frame =
-        R"({"device_id":"fish-tank-01","timestamp_ms":1700000000000,)"
-        R"("temp":25.6,"humid":62.5,"light_lux":420})";
+    const std::string frame = R"({"device_id":"fish-tank-01","timestamp_ms":1700000000000,)"
+                              R"("temp":25.6,"humid":62.5,"light_lux":420})";
 
     iotd::DeviceMessage msg;
     std::string err;
@@ -72,8 +71,7 @@ void TestJsonBasics() {
     const auto nested = iotd::json::Parse(R"({"a":{"b":{"c":7}}})");
     CHECK(nested.IsObject());
     const auto& inner = std::get<iotd::json::Object>(nested.data).at("a");
-    CHECK(iotd::json::GetNumber(
-              std::get<iotd::json::Object>(inner.data).at("b"), "c", -1) == 7.0);
+    CHECK(iotd::json::GetNumber(std::get<iotd::json::Object>(inner.data).at("b"), "c", -1) == 7.0);
 
     // 数组
     const auto arr = iotd::json::Parse("[1, 2, 3]");
@@ -97,13 +95,13 @@ void TestParseErrors() {
 
     // 每一项都必须是"抛异常"而不是"崩溃"或"静默返回错误值"
     const char* bad_cases[] = {
-        R"({"a":1)",                 // 缺右花括号 —— 模拟串口半包
-        R"({"a":})",                 // 缺值
-        R"({a:1})",                  // 键没加引号
-        R"({"a":1,})",               // 多余的逗号
-        R"("unterminated)",          // 字符串没有结束引号
-        R"({"a":1}trailing)",        // 结尾有多余内容
-        R"()",                       // 空输入
+        R"({"a":1)",          // 缺右花括号 —— 模拟串口半包
+        R"({"a":})",          // 缺值
+        R"({a:1})",           // 键没加引号
+        R"({"a":1,})",        // 多余的逗号
+        R"("unterminated)",   // 字符串没有结束引号
+        R"({"a":1}trailing)", // 结尾有多余内容
+        R"()",                // 空输入
     };
 
     for (const char* bad : bad_cases) {
@@ -115,7 +113,7 @@ void TestParseErrors() {
             // 错误信息里必须带位置，否则排障时没用
             CHECK(e.position() <= std::string(bad).size());
         } catch (...) {
-            threw = true;  // 抛了别的异常也算"没崩溃"，但下面会单独检查类型
+            threw = true; // 抛了别的异常也算"没崩溃"，但下面会单独检查类型
         }
         CHECK(threw);
     }
@@ -134,19 +132,18 @@ void TestDeviceClientRejectsBadData() {
     CHECK(!iotd::DeviceClient::ParseFrame("[1,2,3]", msg, err));
 
     // 温度超范围（模拟传感器故障）
-    CHECK(!iotd::DeviceClient::ParseFrame(
-        R"({"device_id":"d1","temp":500.0,"humid":50})", msg, err));
+    CHECK(
+        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":500.0,"humid":50})", msg, err));
 
     // 湿度超范围
-    CHECK(!iotd::DeviceClient::ParseFrame(
-        R"({"device_id":"d1","temp":25.0,"humid":150})", msg, err));
+    CHECK(
+        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":150})", msg, err));
 
     // 空帧（串口空闲时可能出现）
     CHECK(!iotd::DeviceClient::ParseFrame("", msg, err));
 
     // 合法数据必须通过（防止前面的判断写得太严把好数据也挡了）
-    CHECK(iotd::DeviceClient::ParseFrame(
-        R"({"device_id":"d1","temp":25.0,"humid":50})", msg, err));
+    CHECK(iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":50})", msg, err));
 }
 
 void TestDumpRoundTrip() {
@@ -163,7 +160,7 @@ void TestDumpRoundTrip() {
     CHECK(NearlyEqual(iotd::json::GetNumber(first, "missing", -1.0), -1.0));
 }
 
-}  // namespace
+} // namespace
 
 int main() {
     std::printf("===== iotd 测试开始 =====\n");

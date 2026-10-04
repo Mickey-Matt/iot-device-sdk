@@ -30,7 +30,7 @@ class SerialPortSource : public IDataSource {
 public:
     // port_name 形如 "COM3"（程序内部会自动补上 \\.\ 前缀）
     SerialPortSource(std::string port_name, int baud_rate = 115200);
-    ~SerialPortSource() override;   // override：明确表示我在实现基类的虚析构
+    ~SerialPortSource() override; // override：明确表示我在实现基类的虚析构
 
     bool Open(std::string& error) override;
     void Close() override;
@@ -46,7 +46,7 @@ private:
 #endif
     std::string port_name_;
     int baud_rate_;
-    std::string buffer_;   // 收数据的缓冲区 —— 解决"半包"的关键
+    std::string buffer_; // 收数据的缓冲区 —— 解决"半包"的关键
 };
 
-}  // namespace iotd
+} // namespace iotd

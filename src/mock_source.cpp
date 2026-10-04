@@ -19,16 +19,14 @@ std::int64_t NowMs() {
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-}  // namespace
+} // namespace
 
 MockSource::MockSource(int interval_ms)
     : interval_ms_(interval_ms),
       // 用固定种子(42)：每次运行产生的"随机"数据都一样。
       // 这在调试时非常重要 —— 你能复现上一次看到的现象。
       // 如果每次数据都不同，你永远说不清"这个问题到底是不是随机的"。
-      rng_(42),
-      temp_dist_(24.0, 28.0),
-      humid_dist_(50.0, 70.0) {}
+      rng_(42), temp_dist_(24.0, 28.0), humid_dist_(50.0, 70.0) {}
 
 bool MockSource::Open(std::string& error) {
     if (interval_ms_ <= 0) {
@@ -65,9 +63,7 @@ std::string MockSource::BuildFrame() {
     std::snprintf(buf, sizeof(buf),
                   R"({"device_id":"fish-tank-01","timestamp_ms":%lld,)"
                   R"("temp":%.2f,"humid":%.2f,"light_lux":%d})",
-                  static_cast<long long>(NowMs()),
-                  temp_dist_(rng_),
-                  humid_dist_(rng_),
+                  static_cast<long long>(NowMs()), temp_dist_(rng_), humid_dist_(rng_),
                   static_cast<int>(300 + counter_ % 50));
     return buf;
 }
@@ -84,7 +80,7 @@ ReadResult MockSource::Poll() {
     // 这样主循环可以继续做别的事（比如检查用户有没有按 Ctrl+C）。
     const std::int64_t now = NowMs();
     if (now < next_due_ms_) {
-        return result;  // has_data 保持 false
+        return result; // has_data 保持 false
     }
     next_due_ms_ = now + interval_ms_;
 
@@ -93,4 +89,4 @@ ReadResult MockSource::Poll() {
     return result;
 }
 
-}  // namespace iotd
+} // namespace iotd

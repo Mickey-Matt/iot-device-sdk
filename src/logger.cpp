@@ -21,10 +21,10 @@ Logger& Logger::Instance() {
 
 const char* Logger::LevelName(Level level) {
     switch (level) {
-        case Level::Debug: return "DEBUG";
-        case Level::Info:  return "INFO ";
-        case Level::Warn:  return "WARN ";
-        case Level::Error: return "ERROR";
+    case Level::Debug: return "DEBUG";
+    case Level::Info: return "INFO ";
+    case Level::Warn: return "WARN ";
+    case Level::Error: return "ERROR";
     }
     return "?????";
 }
@@ -41,14 +41,13 @@ std::string Logger::NowString() {
 
     std::tm tm_buf{};
 #if defined(_WIN32)
-    localtime_s(&tm_buf, &t);   // Windows 的安全版本
+    localtime_s(&tm_buf, &t); // Windows 的安全版本
 #else
-    localtime_r(&t, &tm_buf);   // Linux/macOS 版本
+    localtime_r(&t, &tm_buf); // Linux/macOS 版本
 #endif
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03d",
-                  tm_buf.tm_year + 1900, tm_buf.tm_mon + 1, tm_buf.tm_mday,
-                  tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec,
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03d", tm_buf.tm_year + 1900,
+                  tm_buf.tm_mon + 1, tm_buf.tm_mday, tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec,
                   static_cast<int>(ms));
     return buf;
 }
@@ -61,7 +60,7 @@ bool Logger::OpenFile(const std::string& path, bool append) {
 
 void Logger::Log(Level level, const std::string& message) {
     if (static_cast<int>(level) < static_cast<int>(min_level_)) {
-        return;  // 级别不够，直接丢弃
+        return; // 级别不够，直接丢弃
     }
 
     // 【加锁】整个输出过程必须原子完成。
@@ -90,4 +89,4 @@ void Logger::Close() {
     }
 }
 
-}  // namespace iotd
+} // namespace iotd

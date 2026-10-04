@@ -121,5 +121,5 @@ std::string GetString(const JsonValue& obj, const std::string& key,
                       const std::string& fallback = "");
 double GetNumber(const JsonValue& obj, const std::string& key, double fallback = 0.0);
 
-}  // namespace json
-}  // namespace iotd
+} // namespace json
+} // namespace iotd

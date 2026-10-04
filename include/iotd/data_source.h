@@ -31,9 +31,9 @@ namespace iotd {
 
 // 一次读取的结果
 struct ReadResult {
-    bool has_data = false;    // 这次有没有读到数据
-    std::string frame;        // 读到的一整帧（已经去掉行尾换行符）
-    std::string error;        // 出错信息，空字符串表示没错
+    bool has_data = false; // 这次有没有读到数据
+    std::string frame;     // 读到的一整帧（已经去掉行尾换行符）
+    std::string error;     // 出错信息，空字符串表示没错
 };
 
 class IDataSource {
@@ -63,4 +63,4 @@ public:
     virtual std::string Name() const = 0;
 };
 
-}  // namespace iotd
+} // namespace iotd

@@ -34,7 +34,7 @@ namespace {
 // 缓冲区上限：8KB。正常一帧 JSON 也就几百字节，超过说明出了异常。
 constexpr std::size_t kMaxBufferBytes = 8 * 1024;
 
-}  // namespace
+} // namespace
 
 SerialPortSource::SerialPortSource(std::string port_name, int baud_rate)
     : port_name_(std::move(port_name)), baud_rate_(baud_rate) {}
@@ -60,14 +60,13 @@ bool SerialPortSource::Open(std::string& error) {
     // -----------------------------------------------------------------------
     const std::string device_path = "\\\\.\\" + port_name_;
 
-    handle_ = ::CreateFileA(
-        device_path.c_str(),
-        GENERIC_READ | GENERIC_WRITE,  // 读写权限
-        0,                             // 独占打开：串口不能被两个程序同时用
-        nullptr,                       // 默认安全属性
-        OPEN_EXISTING,                 // 必须已存在，不创建
-        0,                             // 同步模式
-        nullptr);
+    handle_ = ::CreateFileA(device_path.c_str(),
+                            GENERIC_READ | GENERIC_WRITE, // 读写权限
+                            0,                            // 独占打开：串口不能被两个程序同时用
+                            nullptr,                      // 默认安全属性
+                            OPEN_EXISTING,                // 必须已存在，不创建
+                            0,                            // 同步模式
+                            nullptr);
 
     if (handle_ == INVALID_HANDLE_VALUE) {
         const DWORD err = ::GetLastError();
@@ -95,11 +94,11 @@ bool SerialPortSource::Open(std::string& error) {
         return false;
     }
 
-    dcb.BaudRate = static_cast<DWORD>(baud_rate_);  // 常用 9600 / 115200
-    dcb.ByteSize = 8;                               // 8 位数据位
-    dcb.Parity = NOPARITY;                          // 无校验
-    dcb.StopBits = ONESTOPBIT;                      // 1 位停止位
-    dcb.fBinary = TRUE;                             // 二进制模式，不做字符转换
+    dcb.BaudRate = static_cast<DWORD>(baud_rate_); // 常用 9600 / 115200
+    dcb.ByteSize = 8;                              // 8 位数据位
+    dcb.Parity = NOPARITY;                         // 无校验
+    dcb.StopBits = ONESTOPBIT;                     // 1 位停止位
+    dcb.fBinary = TRUE;                            // 二进制模式，不做字符转换
     // 关闭流控：设备端一般不开硬件流控，开了反而收不到数据
     dcb.fOutxCtsFlow = FALSE;
     dcb.fOutxDsrFlow = FALSE;
@@ -120,8 +119,8 @@ bool SerialPortSource::Open(std::string& error) {
     //   这里设成"最多等 50ms 就返回"，配合非阻塞的 Poll() 语义。
     // -----------------------------------------------------------------------
     COMMTIMEOUTS timeouts{};
-    timeouts.ReadIntervalTimeout = 20;          // 两字节之间最多间隔 20ms
-    timeouts.ReadTotalTimeoutConstant = 50;     // 每次读最多阻塞 50ms
+    timeouts.ReadIntervalTimeout = 20;      // 两字节之间最多间隔 20ms
+    timeouts.ReadTotalTimeoutConstant = 50; // 每次读最多阻塞 50ms
     timeouts.ReadTotalTimeoutMultiplier = 0;
     timeouts.WriteTotalTimeoutConstant = 100;
     timeouts.WriteTotalTimeoutMultiplier = 0;
@@ -174,8 +173,7 @@ ReadResult SerialPortSource::Poll() {
 
     if (bytes_read > 0) {
         buffer_.append(chunk, bytes_read);
-        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 "
-                              << buffer_.size() << " 字节");
+        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 " << buffer_.size() << " 字节");
     }
 
     // --- 第 2 步：从缓冲区里切出一整帧 ---
@@ -187,7 +185,7 @@ ReadResult SerialPortSource::Poll() {
             result.error = "缓冲区超过 8KB 仍未收到换行符，已丢弃（可能是波特率不匹配导致乱码）";
             buffer_.clear();
         }
-        return result;  // has_data == false，属于正常情况，不是错误
+        return result; // has_data == false，属于正常情况，不是错误
     }
 
     // 切出这一帧，并从缓冲区里删掉它（包括那个换行符）
@@ -220,8 +218,8 @@ std::vector<std::string> SerialPortSource::ListAvailablePorts() {
     for (int i = 1; i <= 32; ++i) {
         const std::string name = "COM" + std::to_string(i);
         const std::string path = "\\\\.\\" + name;
-        HANDLE h = ::CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0,
-                                 nullptr, OPEN_EXISTING, 0, nullptr);
+        HANDLE h = ::CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                 OPEN_EXISTING, 0, nullptr);
         if (h != INVALID_HANDLE_VALUE) {
             ports.push_back(name);
             ::CloseHandle(h);
@@ -231,4 +229,4 @@ std::vector<std::string> SerialPortSource::ListAvailablePorts() {
     return ports;
 }
 
-}  // namespace iotd
+} // namespace iotd

@@ -76,10 +76,10 @@ namespace iotd {
 // 类里再用 using Config = MqttConfig; 保留 MqttSource::Config 这种写法。
 // ---------------------------------------------------------------------------
 struct MqttConfig {
-    std::string broker_host = "localhost";  // broker 地址，本机就是 localhost
-    int broker_port = 1883;                 // 1883 = MQTT 明文端口；8883 = TLS
-    std::string client_id;                  // 留空则自动生成唯一 ID
-    std::string username;                   // 需要鉴权时填写
+    std::string broker_host = "localhost"; // broker 地址，本机就是 localhost
+    int broker_port = 1883;                // 1883 = MQTT 明文端口；8883 = TLS
+    std::string client_id;                 // 留空则自动生成唯一 ID
+    std::string username;                  // 需要鉴权时填写
     std::string password;
     std::string device_id = "fish-tank-01"; // 用于拼接主题
     int keepalive_sec = 60;                 // 心跳间隔：多久没交互就发 PINGREQ
@@ -123,7 +123,7 @@ struct MqttConfig {
 
 class MqttSource : public IDataSource {
 public:
-    using Config = MqttConfig;   // 保留 MqttSource::Config 这种写法
+    using Config = MqttConfig; // 保留 MqttSource::Config 这种写法
 
     // -----------------------------------------------------------------------
     // 运行统计：排查现场问题的第一手依据
@@ -188,7 +188,7 @@ private:
     static void OnConnectStatic(struct mosquitto* mosq, void* obj, int rc);
     static void OnDisconnectStatic(struct mosquitto* mosq, void* obj, int rc);
     static void OnMessageStatic(struct mosquitto* mosq, void* obj,
-                               const struct mosquitto_message* msg);
+                                const struct mosquitto_message* msg);
 
     // 真正的处理逻辑（非静态，能访问成员）
     void HandleConnect(int rc);
@@ -211,7 +211,7 @@ private:
     //   必须用锁。这是"按数据特点选同步手段"的判断，不是随便选的。
     // -----------------------------------------------------------------------
     std::atomic<bool> connected_{false};
-    mutable std::mutex mutex_;              // 保护 stats_ 与 pending_frames_
+    mutable std::mutex mutex_; // 保护 stats_ 与 pending_frames_
     Stats stats_;
 
     // 待投递队列：后台线程收到消息后放这里，主线程 Poll() 取走。
@@ -228,4 +228,4 @@ private:
     bool connect_succeeded_ = false;
 };
 
-}  // namespace iotd
+} // namespace iotd

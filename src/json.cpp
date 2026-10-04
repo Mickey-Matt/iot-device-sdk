@@ -15,9 +15,9 @@
 
 #include "iotd/json.h"
 
-#include <cctype>   // std::isspace, std::isdigit
-#include <cstdio>   // snprintf
-#include <cstdlib>  // std::strtod
+#include <cctype>  // std::isspace, std::isdigit
+#include <cstdio>  // snprintf
+#include <cstdlib> // std::strtod
 
 namespace iotd {
 namespace json {
@@ -99,9 +99,7 @@ private:
     }
 
     // 抛出一个"带位置信息"的错误
-    [[noreturn]] void Fail(const std::string& message) const {
-        throw ParseError(message, pos_);
-    }
+    [[noreturn]] void Fail(const std::string& message) const { throw ParseError(message, pos_); }
     // [[noreturn]] 是 C++11 属性，告诉编译器"这个函数一定不会正常返回"。
     // 好处：编译器知道后面的代码不会执行，不会误报"缺少返回值"的警告。
 
@@ -132,24 +130,24 @@ private:
         }
 
         switch (Peek()) {
-            case '{':
-                return ParseObject();
-            case '[':
-                return ParseArray();
-            case '"':
-                return JsonValue(ParseString());
-            case 't':
-                if (MatchLiteral("true")) return JsonValue(true);
-                Fail("无法识别的字面量");
-            case 'f':
-                if (MatchLiteral("false")) return JsonValue(false);
-                Fail("无法识别的字面量");
-            case 'n':
-                if (MatchLiteral("null")) return JsonValue();  // 默认构造即 Null
-                Fail("无法识别的字面量");
-            default:
-                // 剩下只可能是数字
-                return JsonValue(ParseNumber());
+        case '{': return ParseObject();
+        case '[': return ParseArray();
+        case '"': return JsonValue(ParseString());
+        case 't':
+            if (MatchLiteral("true"))
+                return JsonValue(true);
+            Fail("无法识别的字面量");
+        case 'f':
+            if (MatchLiteral("false"))
+                return JsonValue(false);
+            Fail("无法识别的字面量");
+        case 'n':
+            if (MatchLiteral("null"))
+                return JsonValue(); // 默认构造即 Null
+            Fail("无法识别的字面量");
+        default:
+            // 剩下只可能是数字
+            return JsonValue(ParseNumber());
         }
     }
 
@@ -173,19 +171,19 @@ private:
             std::string key = ParseString();
 
             SkipWhitespace();
-            Expect(':');           // 键和值之间必须有冒号
+            Expect(':'); // 键和值之间必须有冒号
             SkipWhitespace();
 
-            result[key] = ParseValue();  // 递归解析值
+            result[key] = ParseValue(); // 递归解析值
 
             SkipWhitespace();
             if (Peek() == ',') {
                 ++pos_;
-                continue;          // 还有下一个键值对
+                continue; // 还有下一个键值对
             }
             if (Peek() == '}') {
                 ++pos_;
-                break;             // 对象结束
+                break; // 对象结束
             }
             Fail("对象中期望 ',' 或 '}'");
         }
@@ -233,7 +231,7 @@ private:
             char c = text_[pos_++];
 
             if (c == '"') {
-                break;  // 结束了
+                break; // 结束了
             }
 
             if (c == '\\') {
@@ -243,14 +241,13 @@ private:
                 }
                 char esc = text_[pos_++];
                 switch (esc) {
-                    case '"':  out.push_back('"');  break;
-                    case '\\': out.push_back('\\'); break;
-                    case '/':  out.push_back('/');  break;
-                    case 'n':  out.push_back('\n'); break;
-                    case 'r':  out.push_back('\r'); break;
-                    case 't':  out.push_back('\t'); break;
-                    default:
-                        Fail("不支持的转义字符");
+                case '"': out.push_back('"'); break;
+                case '\\': out.push_back('\\'); break;
+                case '/': out.push_back('/'); break;
+                case 'n': out.push_back('\n'); break;
+                case 'r': out.push_back('\r'); break;
+                case 't': out.push_back('\t'); break;
+                default: Fail("不支持的转义字符");
                 }
                 continue;
             }
@@ -287,7 +284,7 @@ private:
     }
 };
 
-}  // namespace detail
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // 对外的 Parse 与 Dump
@@ -305,60 +302,68 @@ void Indent(std::string& out, int depth) {
 
 void DumpValue(const JsonValue& value, std::string& out, int depth) {
     switch (value.type) {
-        case JsonValue::Type::Null:
-            out += "null";
-            break;
-        case JsonValue::Type::Bool:
-            out += value.AsBool() ? "true" : "false";
-            break;
-        case JsonValue::Type::Number: {
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "%.3f", value.AsNumber());
-            out += buf;
+    case JsonValue::Type::Null: out += "null"; break;
+    case JsonValue::Type::Bool: out += value.AsBool() ? "true" : "false"; break;
+    case JsonValue::Type::Number: {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.3f", value.AsNumber());
+        out += buf;
+        break;
+    }
+    case JsonValue::Type::String:
+        out += '"';
+        for (char c : value.AsString()) {
+            if (c == '"' || c == '\\')
+                out.push_back('\\');
+            if (c == '\n') {
+                out += "\\n";
+                continue;
+            }
+            out.push_back(c);
+        }
+        out += '"';
+        break;
+    case JsonValue::Type::Object: {
+        const auto& obj = std::get<Object>(value.data);
+        if (obj.empty()) {
+            out += "{}";
             break;
         }
-        case JsonValue::Type::String:
-            out += '"';
-            for (char c : value.AsString()) {
-                if (c == '"' || c == '\\') out.push_back('\\');
-                if (c == '\n') { out += "\\n"; continue; }
-                out.push_back(c);
-            }
-            out += '"';
-            break;
-        case JsonValue::Type::Object: {
-            const auto& obj = std::get<Object>(value.data);
-            if (obj.empty()) { out += "{}"; break; }
-            out += "{\n";
-            std::size_t i = 0;
-            for (const auto& kv : obj) {
-                Indent(out, depth + 1);
-                out += '"' + kv.first + "\": ";
-                DumpValue(kv.second, out, depth + 1);
-                if (++i < obj.size()) out += ',';
-                out += '\n';
-            }
-            Indent(out, depth);
-            out += '}';
+        out += "{\n";
+        std::size_t i = 0;
+        for (const auto& kv : obj) {
+            Indent(out, depth + 1);
+            out += '"' + kv.first + "\": ";
+            DumpValue(kv.second, out, depth + 1);
+            if (++i < obj.size())
+                out += ',';
+            out += '\n';
+        }
+        Indent(out, depth);
+        out += '}';
+        break;
+    }
+    case JsonValue::Type::Array: {
+        const auto& arr = std::get<Array>(value.data);
+        if (arr.empty()) {
+            out += "[]";
             break;
         }
-        case JsonValue::Type::Array: {
-            const auto& arr = std::get<Array>(value.data);
-            if (arr.empty()) { out += "[]"; break; }
-            out += "[\n";
-            for (std::size_t i = 0; i < arr.size(); ++i) {
-                Indent(out, depth + 1);
-                DumpValue(arr[i], out, depth + 1);
-                if (i + 1 < arr.size()) out += ',';
-                out += '\n';
-            }
-            Indent(out, depth);
-            out += ']';
-            break;
+        out += "[\n";
+        for (std::size_t i = 0; i < arr.size(); ++i) {
+            Indent(out, depth + 1);
+            DumpValue(arr[i], out, depth + 1);
+            if (i + 1 < arr.size())
+                out += ',';
+            out += '\n';
         }
+        Indent(out, depth);
+        out += ']';
+        break;
+    }
     }
 }
-}  // namespace
+} // namespace
 
 std::string Dump(const JsonValue& value) {
     std::string out;
@@ -366,22 +371,25 @@ std::string Dump(const JsonValue& value) {
     return out;
 }
 
-std::string GetString(const JsonValue& obj, const std::string& key,
-                      const std::string& fallback) {
-    if (!obj.IsObject()) return fallback;
+std::string GetString(const JsonValue& obj, const std::string& key, const std::string& fallback) {
+    if (!obj.IsObject())
+        return fallback;
     const auto& map = std::get<Object>(obj.data);
     auto it = map.find(key);
-    if (it == map.end()) return fallback;
+    if (it == map.end())
+        return fallback;
     return it->second.AsString(fallback);
 }
 
 double GetNumber(const JsonValue& obj, const std::string& key, double fallback) {
-    if (!obj.IsObject()) return fallback;
+    if (!obj.IsObject())
+        return fallback;
     const auto& map = std::get<Object>(obj.data);
     auto it = map.find(key);
-    if (it == map.end()) return fallback;
+    if (it == map.end())
+        return fallback;
     return it->second.AsNumber(fallback);
 }
 
-}  // namespace json
-}  // namespace iotd
+} // namespace json
+} // namespace iotd

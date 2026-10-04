@@ -30,7 +30,7 @@
 #include "iotd/mqtt_source.h"
 
 #if defined(_WIN32)
-#include <windows.h>   // SetConsoleOutputCP
+#include <windows.h> // SetConsoleOutputCP
 #endif
 
 namespace {
@@ -50,7 +50,7 @@ void OnSignal(int) {
 // ---------------------------------------------------------------------------
 class FishTankDevice : public iotd::MqttSource {
 public:
-    using iotd::MqttSource::MqttSource;   // 继承基类的构造函数
+    using iotd::MqttSource::MqttSource; // 继承基类的构造函数
 
     void OnCommand(const std::string& topic, const std::string& payload) override {
         // 先调基类默认实现（会打日志），再加上自己的业务逻辑
@@ -109,7 +109,7 @@ void OnTelemetry(iotd::MqttSource& source, const iotd::DeviceMessage& msg) {
     }
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
 #if defined(_WIN32)
@@ -138,19 +138,18 @@ int main(int argc, char** argv) {
     config.broker_host = host;
     config.broker_port = port;
     config.device_id = "fish-tank-01";
-    config.qos = 1;                    // 至少一次，不丢
-    config.keepalive_sec = 15;         // 演示时缩短心跳，方便观察重连
-    config.reconnect_delay_sec = 1;    // 首次重连等 1 秒（单位是秒！）
-    config.reconnect_delay_max_sec = 8;  // 最多等到 8 秒（演示时不用等太久）
+    config.qos = 1;                     // 至少一次，不丢
+    config.keepalive_sec = 15;          // 演示时缩短心跳，方便观察重连
+    config.reconnect_delay_sec = 1;     // 首次重连等 1 秒（单位是秒！）
+    config.reconnect_delay_max_sec = 8; // 最多等到 8 秒（演示时不用等太久）
 
     FishTankDevice device(config);
 
     // --- 我们的数据源就是 MQTT，所以直接把它交给 DeviceClient ---
     // 注意：DeviceClient 完全不知道这是 MQTT，它只认 IDataSource 接口。
     // 这就是第一期做抽象的回报 —— 换数据源不用改一行核心代码。
-    iotd::DeviceClient client(device, [&device](const iotd::DeviceMessage& msg) {
-        OnTelemetry(device, msg);
-    });
+    iotd::DeviceClient client(
+        device, [&device](const iotd::DeviceMessage& msg) { OnTelemetry(device, msg); });
 
     std::string error;
     if (!client.Start(error)) {

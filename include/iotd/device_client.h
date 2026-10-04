@@ -31,10 +31,10 @@ namespace iotd {
 // 因为"失败"分很多种：解析错误可以跳过继续，
 // 而"数据源断开"需要触发重连。用枚举能让调用方区分处理。
 enum class ProcessResult {
-    Ok,              // 成功处理一帧
-    NoData,          // 这次没读到数据（正常）
-    ParseFailed,     // 读到了数据但 JSON 不合法（可跳过，不致命）
-    SourceError,     // 数据源本身出错了（需要上层介入）
+    Ok,          // 成功处理一帧
+    NoData,      // 这次没读到数据（正常）
+    ParseFailed, // 读到了数据但 JSON 不合法（可跳过，不致命）
+    SourceError, // 数据源本身出错了（需要上层介入）
 };
 
 class DeviceClient {
@@ -76,25 +76,24 @@ public:
     //                 如果是 parse_failed 涨得快，说明是串口参数或分帧问题；
     //                 如果是 frames_received 不涨，说明链路根本没通。"
     struct Stats {
-        std::uint64_t frames_received = 0;   // 收到多少帧
-        std::uint64_t frames_ok = 0;         // 解析成功多少帧
-        std::uint64_t parse_failed = 0;      // 解析失败多少帧
-        std::uint64_t source_errors = 0;     // 数据源错误次数
-        std::int64_t last_frame_ms = 0;      // 最后一次收到数据的时间戳
+        std::uint64_t frames_received = 0; // 收到多少帧
+        std::uint64_t frames_ok = 0;       // 解析成功多少帧
+        std::uint64_t parse_failed = 0;    // 解析失败多少帧
+        std::uint64_t source_errors = 0;   // 数据源错误次数
+        std::int64_t last_frame_ms = 0;    // 最后一次收到数据的时间戳
     };
     const Stats& GetStats() const { return stats_; }
 
     // 把一帧文本解析成 DeviceMessage。
     // 声明为 static，因为它不需要访问任何成员变量 ——
     // 这样测试时可以直接调 DeviceClient::ParseFrame(...) 而不用构造对象。
-    static bool ParseFrame(const std::string& frame, DeviceMessage& out,
-                           std::string& error);
+    static bool ParseFrame(const std::string& frame, DeviceMessage& out, std::string& error);
 
 private:
     IDataSource& source_;      // 借用，不拥有
-    TelemetryHandler handler_;  // 上报回调
+    TelemetryHandler handler_; // 上报回调
     bool running_ = false;
     Stats stats_;
 };
 
-}  // namespace iotd
+} // namespace iotd

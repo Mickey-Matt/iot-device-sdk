@@ -33,33 +33,34 @@
 #include "iotd/serial_port_source.h"
 
 #if defined(_WIN32)
-#include <windows.h>   // SetConsoleOutputCP 需要它
+#include <windows.h> // SetConsoleOutputCP 需要它
 #endif
 
 namespace {
 
 std::atomic<bool> g_should_exit{false};
 
-void OnSignal(int) { g_should_exit = true; }
+void OnSignal(int) {
+    g_should_exit = true;
+}
 
 void PrintUsage() {
-    std::cout <<
-        "iot-debug —— 物联网设备调试工具 v0.1\n"
-        "\n"
-        "用法:\n"
-        "  iot-debug list                     列出本机可用串口\n"
-        "  iot-debug mock [间隔ms]            用模拟数据源运行（默认 500ms）\n"
-        "  iot-debug serial <端口> [波特率]   从串口读取并解析（默认 115200）\n"
-        "  iot-debug parse <JSON文本>         解析一段 JSON 并打印结果\n"
-        "  iot-debug parse --file <文件路径>  从文件读取 JSON 再解析（推荐）\n"
-        "\n"
-        "示例:\n"
-        "  iot-debug mock 200\n"
-        "  iot-debug serial COM3 115200\n"
-        "  iot-debug parse --file sample.json\n"
-        "\n"
-        "【经验提示】直接命令行传 JSON 很容易被 shell 吃掉引号，\n"
-        "  Windows PowerShell / cmd 都会。所以排查真实问题时优先用 --file。\n";
+    std::cout << "iot-debug —— 物联网设备调试工具 v0.1\n"
+                 "\n"
+                 "用法:\n"
+                 "  iot-debug list                     列出本机可用串口\n"
+                 "  iot-debug mock [间隔ms]            用模拟数据源运行（默认 500ms）\n"
+                 "  iot-debug serial <端口> [波特率]   从串口读取并解析（默认 115200）\n"
+                 "  iot-debug parse <JSON文本>         解析一段 JSON 并打印结果\n"
+                 "  iot-debug parse --file <文件路径>  从文件读取 JSON 再解析（推荐）\n"
+                 "\n"
+                 "示例:\n"
+                 "  iot-debug mock 200\n"
+                 "  iot-debug serial COM3 115200\n"
+                 "  iot-debug parse --file sample.json\n"
+                 "\n"
+                 "【经验提示】直接命令行传 JSON 很容易被 shell 吃掉引号，\n"
+                 "  Windows PowerShell / cmd 都会。所以排查真实问题时优先用 --file。\n";
 }
 
 // 从文件读取全部内容，并去掉 UTF-8 BOM 和首尾空白。
@@ -78,10 +79,8 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
     out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 
     // 去掉 BOM
-    if (out.size() >= 3 &&
-        static_cast<unsigned char>(out[0]) == 0xEF &&
-        static_cast<unsigned char>(out[1]) == 0xBB &&
-        static_cast<unsigned char>(out[2]) == 0xBF) {
+    if (out.size() >= 3 && static_cast<unsigned char>(out[0]) == 0xEF &&
+        static_cast<unsigned char>(out[1]) == 0xBB && static_cast<unsigned char>(out[2]) == 0xBF) {
         out.erase(0, 3);
     }
 
@@ -90,7 +89,7 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
     const std::size_t begin = out.find_first_not_of(ws);
     if (begin == std::string::npos) {
         out.clear();
-        return true;   // 空文件，交给解析器去报"期望一个值"
+        return true; // 空文件，交给解析器去报"期望一个值"
     }
     const std::size_t end = out.find_last_not_of(ws);
     out = out.substr(begin, end - begin + 1);
@@ -102,11 +101,10 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
 // 以后要改退出逻辑就得改两处，早晚会漏一处。
 int RunLoop(iotd::IDataSource& source, const std::string& tag) {
     iotd::DeviceClient client(source, [&tag](const iotd::DeviceMessage& msg) {
-        IOTD_LOG(iotd::Logger::Level::Info,
-                 "[" << tag << "] " << msg.device_id
-                     << " temp=" << msg.reading.temperature_c
-                     << " humid=" << msg.reading.humidity_pct
-                     << " light=" << msg.reading.light_lux);
+        IOTD_LOG(iotd::Logger::Level::Info, "[" << tag << "] " << msg.device_id
+                                                << " temp=" << msg.reading.temperature_c
+                                                << " humid=" << msg.reading.humidity_pct
+                                                << " light=" << msg.reading.light_lux);
     });
 
     std::string error;
@@ -160,7 +158,8 @@ int CmdParse(const std::string& text, const std::string& source_label) {
 
         // 顺便演示如何按字段取值
         std::cout << "\n字段提取：\n"
-                  << "  device_id  = " << iotd::json::GetString(value, "device_id", "(缺失)") << "\n"
+                  << "  device_id  = " << iotd::json::GetString(value, "device_id", "(缺失)")
+                  << "\n"
                   << "  temp       = " << iotd::json::GetNumber(value, "temp", -999) << "\n"
                   << "  humid      = " << iotd::json::GetNumber(value, "humid", -999) << "\n";
         return 0;
@@ -169,13 +168,14 @@ int CmdParse(const std::string& text, const std::string& source_label) {
         // 这个细节直接决定客户能不能自己定位问题。
         std::cerr << "解析失败：位置 " << e.position() << "：" << e.what() << "\n";
         std::cerr << "定位：\n  ";
-        for (std::size_t i = 0; i < e.position(); ++i) std::cerr << ' ';
+        for (std::size_t i = 0; i < e.position(); ++i)
+            std::cerr << ' ';
         std::cerr << "^\n";
         return 2;
     }
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
 #if defined(_WIN32)

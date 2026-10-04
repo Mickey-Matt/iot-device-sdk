@@ -47,12 +47,12 @@ public:
     void Close();
 
 private:
-    Logger() = default;                       // 构造函数私有 → 外部无法 new Logger
-    Logger(const Logger&) = delete;           // 禁止拷贝
+    Logger() = default;             // 构造函数私有 → 外部无法 new Logger
+    Logger(const Logger&) = delete; // 禁止拷贝
     Logger& operator=(const Logger&) = delete;
 
     static const char* LevelName(Level level);
-    static std::string NowString();           // 生成 "2026-09-30 14:05:12.123" 形式的时间戳
+    static std::string NowString(); // 生成 "2026-09-30 14:05:12.123" 形式的时间戳
 
     Level min_level_ = Level::Info;
     std::ofstream file_;
@@ -81,18 +81,18 @@ private:
 //   LOG_INFO("temp=" << t)  →  输出类似 "temp=25.3"
 // 这样就像用 std::cout 一样自然。
 // ---------------------------------------------------------------------------
-#define IOTD_LOG(level, expr)                                          \
-    do {                                                               \
-        std::ostringstream _oss;                                       \
-        _oss << expr;                                                  \
-        ::iotd::Logger::Instance().Log(level, _oss.str());             \
+#define IOTD_LOG(level, expr)                                                                      \
+    do {                                                                                           \
+        std::ostringstream _oss;                                                                   \
+        _oss << expr;                                                                              \
+        ::iotd::Logger::Instance().Log(level, _oss.str());                                         \
     } while (false)
 // 外面套 do { } while(false) 是宏的经典防御写法：
 // 保证它在 if/else 里当成一条语句，不会因为缺分号而出错。
 
 #define LOG_DEBUG(expr) IOTD_LOG(::iotd::Logger::Level::Debug, expr)
-#define LOG_INFO(expr)  IOTD_LOG(::iotd::Logger::Level::Info, expr)
-#define LOG_WARN(expr)  IOTD_LOG(::iotd::Logger::Level::Warn, expr)
+#define LOG_INFO(expr) IOTD_LOG(::iotd::Logger::Level::Info, expr)
+#define LOG_WARN(expr) IOTD_LOG(::iotd::Logger::Level::Warn, expr)
 #define LOG_ERROR(expr) IOTD_LOG(::iotd::Logger::Level::Error, expr)
 
-}  // namespace iotd
+} // namespace iotd

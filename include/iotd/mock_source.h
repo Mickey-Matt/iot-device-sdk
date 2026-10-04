@@ -38,11 +38,11 @@ private:
     int interval_ms_;
     bool opened_ = false;
     bool inject_corrupted_ = false;
-    std::uint64_t counter_ = 0;           // 第几帧
-    std::int64_t next_due_ms_ = 0;        // 下一帧该在什么时候产出
-    std::mt19937 rng_;                    // 随机数引擎
+    std::uint64_t counter_ = 0;    // 第几帧
+    std::int64_t next_due_ms_ = 0; // 下一帧该在什么时候产出
+    std::mt19937 rng_;             // 随机数引擎
     std::uniform_real_distribution<double> temp_dist_;
     std::uniform_real_distribution<double> humid_dist_;
 };
 
-}  // namespace iotd
+} // namespace iotd

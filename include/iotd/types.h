@@ -53,7 +53,7 @@ struct DeviceMessage {
     // 毫秒级更早，1970 年 1 月就撞了，所以这里必须自己写清楚。）
     // int64_t 明确表示"8 字节有符号"，换平台也不会变。
     // 这也是上面 #include <cstdint> 唯一的原因。
-    SensorReading reading;         // 嵌套一个 SensorReading
+    SensorReading reading; // 嵌套一个 SensorReading
 
     // 结构体嵌套结构体，是表达"一个东西包含另一个东西"的最自然方式。
     // 面试时会问"struct 和 class 的区别"——在 C++ 里只有一个区别：
@@ -64,11 +64,11 @@ struct DeviceMessage {
 // 主题拼接工具：MQTT 的主题形如 dev/{设备号}/up
 // 第二阶段接入 MQTT 时会用到，现在先放好。
 // ---------------------------------------------------------------------------
-inline std::string BuildUpTopic(const std::string &device_id) {
+inline std::string BuildUpTopic(const std::string& device_id) {
     return "dev/" + device_id + "/up";
 }
 
-inline std::string BuildCmdTopic(const std::string &device_id) {
+inline std::string BuildCmdTopic(const std::string& device_id) {
     return "dev/" + device_id + "/cmd";
 }
 

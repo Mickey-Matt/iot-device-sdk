@@ -30,7 +30,7 @@
 #include "iotd/serial_port_source.h"
 
 #if defined(_WIN32)
-#include <windows.h>   // SetConsoleOutputCP 需要它
+#include <windows.h> // SetConsoleOutputCP 需要它
 #endif
 
 namespace {
@@ -55,14 +55,13 @@ void OnSignal(int) {
 // 第一阶段：打印 + 落 CSV 文件；第二阶段这里会变成发 MQTT。
 void OnTelemetry(const iotd::DeviceMessage& msg) {
     IOTD_LOG(iotd::Logger::Level::Info,
-             "上报 device=" << msg.device_id
-                            << " temp=" << msg.reading.temperature_c << "C"
+             "上报 device=" << msg.device_id << " temp=" << msg.reading.temperature_c << "C"
                             << " humid=" << msg.reading.humidity_pct << "%"
                             << " light=" << msg.reading.light_lux << "lux"
                             << " ts=" << msg.timestamp_ms);
 }
 
-}  // namespace
+} // namespace
 
 int main(int argc, char** argv) {
     // 让控制台支持 UTF-8 输出，否则中文日志会变乱码。
@@ -139,10 +138,9 @@ int main(int argc, char** argv) {
 
     const auto& stats = client.GetStats();
     LOG_INFO("=== 运行结束 ===");
-    LOG_INFO("总计：收到 " << stats.frames_received
-             << " 帧，解析成功 " << stats.frames_ok
-             << " 帧，失败 " << stats.parse_failed
-             << " 帧，数据源错误 " << stats.source_errors << " 次");
+    LOG_INFO("总计：收到 " << stats.frames_received << " 帧，解析成功 " << stats.frames_ok
+                           << " 帧，失败 " << stats.parse_failed << " 帧，数据源错误 "
+                           << stats.source_errors << " 次");
 
     // 打印"成功率"这个指标，是运维思维的体现：
     // 光说"跑完了"没有价值，说"成功率 87.5%"才能让人判断链路健不健康。
