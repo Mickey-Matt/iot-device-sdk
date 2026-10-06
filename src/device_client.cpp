@@ -21,8 +21,8 @@ std::int64_t NowMs() {
 
 DeviceClient::DeviceClient(IDataSource& source, TelemetryHandler handler)
     : source_(source), handler_(std::move(handler)) {}
-// std::move(handler) 把传进来的回调"搬"进成员变量，避免一次拷贝。
-// 对于 std::function（内部可能持有 lambda 的捕获变量），这个开销不能忽略。
+// std::move(handler) 把传进来的回调"搬"进成员变量，避免一次拷贝
+// 对于 std::function（内部可能持有 lambda 的捕获变量），这个开销不能忽略
 
 bool DeviceClient::Start(std::string& error) {
     if (running_) {
@@ -74,9 +74,9 @@ bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std:
         out.reading.humidity_pct = json::GetNumber(root, "humid", 0.0);
         out.reading.light_lux = static_cast<int>(json::GetNumber(root, "light_lux", 0.0));
 
-        // 数据合理性校验：这一层经常被新手忽略，但它是"技术支持"的核心价值。
+        // 数据合理性校验：这一层经常被新手忽略，但它是"技术支持"的核心价值
         // 温度不可能是 500 度 —— 如果有，说明传感器坏了或报文被截断拼错了，
-        // 这时候应该报警而不是把脏数据上报到云端。
+        // 这时候应该报警而不是把脏数据上报到云端
         if (out.reading.temperature_c < -40.0 || out.reading.temperature_c > 125.0) {
             error = "温度值超出合理范围：" + std::to_string(out.reading.temperature_c);
             return false;
@@ -88,10 +88,10 @@ bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std:
         return true;
 
     } catch (const json::ParseError& e) {
-        // 关键设计：JSON 解析失败【不】让程序退出，只记录并跳过这一帧。
+        // 关键设计：JSON 解析失败【不】让程序退出，只记录并跳过这一帧
         // 理由：现场环境中偶发的坏帧是常态（干扰、拔插、波特率抖动），
-        //       如果一帧坏数据就让整个服务挂掉，那是不可接受的。
-        //       这个取舍在面试里非常值得讲。
+        //       如果一帧坏数据就让整个服务挂掉，那是不可接受的
+        //       这个取舍在面试里非常值得讲
         error =
             std::string("JSON 解析失败（位置 ") + std::to_string(e.position()) + "）：" + e.what();
         return false;
@@ -123,16 +123,16 @@ ProcessResult DeviceClient::PollOnce() {
     std::string parse_error;
     if (!ParseFrame(read.frame, message, parse_error)) {
         ++stats_.parse_failed;
-        // 把坏帧原样打出来 —— 排查时你最需要看到的就是"它到底长什么样"。
-        // 只打印"解析失败"而不打印内容，是新手最常犯的日志错误。
+        // 把坏帧原样打出来 —— 排查时你最需要看到的就是"它到底长什么样"
+        // 只打印"解析失败"而不打印内容，是新手最常犯的日志错误
         LOG_WARN("丢弃一帧坏数据：" << parse_error << " | 原始内容: " << read.frame);
         return ProcessResult::ParseFailed;
     }
 
     ++stats_.frames_ok;
 
-    // 调用回调把数据交给上层。这里用 if (handler_) 判空 ——
-    // 客户可能只想解析不想上报，允许回调为空。
+    // 调用回调把数据交给上层，这里用 if (handler_) 判空 ——
+    // 客户可能只想解析不想上报，允许回调为空
     if (handler_) {
         handler_(message);
     }

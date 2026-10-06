@@ -3,9 +3,9 @@
 //
 // 【调试命令行工具 iot-debug】
 //
-// 这是"技术支持工程师"日常真正会用的东西。
+// 这是"技术支持工程师"日常真正会用的东西
 // 客户说"我的设备数据不对"，你不可能跑去现场，你需要一个能在自己电脑上
-// 复现客户数据流的工具。这就是它的用途。
+// 复现客户数据流的工具，这就是它的用途
 //
 // 用法：
 //   iot-debug list                列出本机可用串口
@@ -63,13 +63,13 @@ void PrintUsage() {
                  "  Windows PowerShell / cmd 都会。所以排查真实问题时优先用 --file。\n";
 }
 
-// 从文件读取全部内容，并去掉 UTF-8 BOM 和首尾空白。
+// 从文件读取全部内容，并去掉 UTF-8 BOM 和首尾空白
 //
 // 为什么要去 BOM？
 //   Windows 记事本、PowerShell 的 Out-File 都可能给文件加上 UTF-8 BOM
-//   （开头三个字节 EF BB BF）。JSON 解析器看到这三个字节会直接报错，
-//   而人在编辑器里完全看不出区别 —— 这是极难排查的一类问题。
-//   把它处理掉，客户就少一个深夜找你的理由。
+//   （开头三个字节 EF BB BF），JSON 解析器看到这三个字节会直接报错，
+//   而人在编辑器里完全看不出区别 —— 这是极难排查的一类问题
+//   把它处理掉，客户就少一个深夜找你的理由
 bool ReadTextFile(const std::string& path, std::string& out, std::string& error) {
     std::ifstream in(path, std::ios::binary);
     if (!in.is_open()) {
@@ -96,9 +96,9 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
     return true;
 }
 
-// 统一的运行循环：让 mock 与 serial 两个子命令共用同一段驱动代码。
+// 统一的运行循环：让 mock 与 serial 两个子命令共用同一段驱动代码
 // 这是"消除重复"的工程习惯 —— 如果两个子命令各写一遍循环，
-// 以后要改退出逻辑就得改两处，早晚会漏一处。
+// 以后要改退出逻辑就得改两处，早晚会漏一处
 int RunLoop(iotd::IDataSource& source, const std::string& tag) {
     iotd::DeviceClient client(source, [&tag](const iotd::DeviceMessage& msg) {
         IOTD_LOG(iotd::Logger::Level::Info, "[" << tag << "] " << msg.device_id
@@ -130,7 +130,7 @@ int RunLoop(iotd::IDataSource& source, const std::string& tag) {
               << "数据源错误: " << s.source_errors << "\n";
     // 这个统计表就是"技术支持"的交付物雏形：
     // 客户问"为什么我的数据丢了"，你把这张表拍给他，
-    // 一眼就能看出是链路没通（收到帧数=0）还是数据格式错（解析失败数高）。
+    // 一眼就能看出是链路没通（收到帧数=0）还是数据格式错（解析失败数高）
     return 0;
 }
 
@@ -164,11 +164,25 @@ int CmdParse(const std::string& text, const std::string& source_label) {
                   << "  humid      = " << iotd::json::GetNumber(value, "humid", -999) << "\n";
         return 0;
     } catch (const iotd::json::ParseError& e) {
-        // 出错时打印"第几个字符出错"，而不是笼统地说"解析失败"。
-        // 这个细节直接决定客户能不能自己定位问题。
+        // 出错时打印"第几个字符出错"，而不是笼统地说"解析失败"
         std::cerr << "解析失败：位置 " << e.position() << "：" << e.what() << "\n";
-        std::cerr << "定位：\n  ";
-        for (std::size_t i = 0; i < e.position(); ++i)
+
+        // 定位连同错误原文一起打出来
+        std::size_t begin = 0;
+        if (e.position() > 0) {
+            const auto prev_nl = text.rfind('\n', e.position() - 1);
+            if (prev_nl != std::string::npos)
+                begin = prev_nl + 1;
+        }
+        const auto next_nl = text.find('\n', e.position());
+        const std::size_t end = (next_nl == std::string::npos) ? text.size() : next_nl;
+        std::string line = text.substr(begin, end - begin);
+        // 文件按 CRLF 存时行尾会多个 \r，会让 ^ 偏一格
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
+        std::cerr << "定位：\n  " << line << "\n  ";
+        for (std::size_t i = begin; i < e.position(); ++i)
             std::cerr << ' ';
         std::cerr << "^\n";
         return 2;
@@ -220,9 +234,9 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        // 支持 --file：从文件读 JSON。
+        // 支持 --file：从文件读 JSON
         // 为什么必须有这个模式？因为命令行传 JSON 会被 shell 吃掉引号，
-        // 这是排查真实问题时最容易踩的坑（我们在文档里专门讲了这个案例）。
+        // 这是排查真实问题时最容易踩的坑（我们在文档里专门讲了这个案例）
         if (std::string(argv[2]) == "--file") {
             if (argc < 4) {
                 std::cerr << "错误：--file 后面要跟文件路径\n";

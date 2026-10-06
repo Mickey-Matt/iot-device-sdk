@@ -18,17 +18,17 @@ if(MSVC)
     add_compile_options(/W4 /utf-8)   # /utf-8 防止中文注释和字符串乱码
 else()
     add_compile_options(-Wall -Wextra)
-    # 静态链接 GCC 自己的运行库（libgcc / libstdc++）。
-    # 好处：exe 少依赖两个 DLL，拷到别的机器上更容易跑起来。
-    # 这也是很多商业软件交付时的标准做法。
+    # 静态链接 GCC 自己的运行库（libgcc / libstdc++）
+    # 好处：exe 少依赖两个 DLL，拷到别的机器上更容易跑起来
+    # 这也是很多商业软件交付时的标准做法
     add_link_options(-static-libgcc -static-libstdc++)
 endif()
 
-# 让 CMake 在 build/ 目录里生成 compile_commands.json。
+# 让 CMake 在 build/ 目录里生成 compile_commands.json
 # 这个文件记录"每个 .cpp 到底是拿哪条完整命令编译的"（编译器路径、-I 头文件
-# 目录、-std=c++17、所有宏）。VSCode 的 C/C++ 插件靠它做代码补全和跳转，
-# 于是 CMakeLists.txt 成了编译设置的唯一来源，不用再手写 c_cpp_properties.json。
-# 它只影响生成的文件，不影响编译出的 exe。
+# 目录、-std=c++17、所有宏），VSCode 的 C/C++ 插件靠它做代码补全和跳转，
+# 于是 CMakeLists.txt 成了编译设置的唯一来源，不用再手写 c_cpp_properties.json
+# 它只影响生成的文件，不影响编译出的 exe
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 理想情况下一句 find_package(mosquitto) 就够了，
 # 但 MSYS2 的 mosquitto 包【没有提供 CMake config 文件】
 # （实测 C:\msys64\ucrt64\lib\cmake\ 下没有 mosquitto 目录），
-# 所以 CMake 找不到它，必须用 pkg-config 或 find_library 手动定位。
+# 所以 CMake 找不到它，必须用 pkg-config 或 find_library 手动定位
 #
 # 这两种写法你都要认识，因为真实项目里会不断遇到"不带 CMake 支持"的库：
 #   pkg-config   —— 老牌手段，.pc 文件里写着编译参数（Linux/MSYS2 常见）
@@ -82,8 +82,8 @@ endif()
 # ---------------------------------------------------------------------------
 # 核心静态库 iotd_core
 #   为什么先编成"库"而不是直接编 exe？
-#   因为库可以被多个程序复用：device_sim 用它、iot-debug 用它、tests 也用它。
-#   这正是 SDK 的本质——把可复用的能力打包，让别人去调用。
+#   因为库可以被多个程序复用：device_sim 用它、iot-debug 用它、tests 也用它
+#   这正是 SDK 的本质——把可复用的能力打包，让别人去调用
 # ---------------------------------------------------------------------------
 # 示例数据文件复制到构建目录，方便命令行直接引用
 #   （这条必须放在 project() 之后）
@@ -98,9 +98,9 @@ add_library(iotd_core STATIC
     src/device_client.cpp
 )
 
-# PUBLIC 表示：谁链接 iotd_core，谁就自动获得这个 include 目录和 mosquitto。
+# PUBLIC 表示：谁链接 iotd_core，谁就自动获得这个 include 目录和 mosquitto
 # 为什么 mosquitto 也是 PUBLIC？因为 mqtt_source.h 里 #include <mosquitto.h>，
-# 使用者包含这个头文件时也要能找到它 —— 它属于"接口的一部分"。
+# 使用者包含这个头文件时也要能找到它 —— 它属于"接口的一部分"
 target_include_directories(iotd_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(iotd_core PUBLIC ${MOSQUITTO_TARGET})
 
@@ -128,16 +128,16 @@ add_test(NAME json_tests COMMAND iotd_tests)
 # 构建后把 libmosquitto.dll 复制到产物目录
 #
 # 【这一次我们踩了坑，所以有了这段代码】
-# 现象：程序一启动就退出，没有任何输出，退出码 -1073741511。
+# 现象：程序一启动就退出，没有任何输出，退出码 -1073741511
 # 排查步骤（这套方法以后遇到任何"缺 DLL"都能用）：
 #   1. -1073741511 转十六进制 = 0xC0000139 = STATUS_ENTRYPOINT_NOT_FOUND
 #      → 典型含义就是"某个依赖的 DLL 找不到"
 #   2. 用 objdump 看真实依赖（依赖是传递的，不能只看直接依赖）：
 #        objdump -p libmosquitto.dll | findstr "DLL Name"
 #      结果：它还依赖 libcrypto-3-x64.dll、libssl-3-x64.dll、
-#            libwinpthread-1.dll —— 最初只复制 libmosquitto.dll 一个，当然起不来。
+#            libwinpthread-1.dll —— 最初只复制 libmosquitto.dll 一个，当然起不来
 #
-# 【教训】A 依赖 B，B 又依赖 C 和 D。交付时要一次把所有相关 DLL 都复制过去。
+# 【教训】A 依赖 B，B 又依赖 C 和 D，交付时要一次把所有相关 DLL 都复制过去
 # ---------------------------------------------------------------------------
 if(WIN32)
     # 所有需要随程序一起分发的 DLL（含传递依赖）
