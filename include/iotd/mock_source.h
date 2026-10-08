@@ -43,6 +43,7 @@ private:
     std::mt19937 rng_;             // 随机数引擎
     std::uniform_real_distribution<double> temp_dist_;
     std::uniform_real_distribution<double> humid_dist_;
+    std::uniform_real_distribution<double> light_dist_;
 };
 
 } // namespace iotd

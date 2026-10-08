@@ -92,7 +92,8 @@ int main(int argc, char** argv) {
         std::cerr << "警告：无法打开日志文件，只输出到屏幕\n";
     }
 
-    LOG_INFO("=== device_sim 启动 ===");
+    LOG_INFO("=== device_sim 启动 (间隔" << interval_ms << "ms) ===");
+    // iotd::Logger::Instance().SetLevel(iotd::Logger::Level::Debug);
 
     // --- 选择数据源 ---
     // 这里体现了 IDataSource 接口的价值：
