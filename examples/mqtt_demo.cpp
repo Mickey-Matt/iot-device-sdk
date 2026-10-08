@@ -100,9 +100,10 @@ public:
 void OnTelemetry(iotd::MqttSource& source, const iotd::DeviceMessage& msg) {
     std::string error;
     if (source.PublishTelemetry(msg.reading, error)) {
-        IOTD_LOG(iotd::Logger::Level::Info,
-                 "↑ 上报成功 temp=" << msg.reading.temperature_c
-                                    << "C humid=" << msg.reading.humidity_pct << "%");
+        IOTD_LOG(iotd::Logger::Level::Info, "↑ 上报成功 #" << msg.sequence
+                                                           << " temp=" << msg.reading.temperature_c
+                                                           << "C humid=" << msg.reading.humidity_pct
+                                                           << "% 开机" << msg.uptime_ms << "ms");
     } else {
         // 这条日志在断网时会出现 —— 它就是"链路出问题"的第一手证据
         IOTD_LOG(iotd::Logger::Level::Warn, "↑ 上报失败：" << error);

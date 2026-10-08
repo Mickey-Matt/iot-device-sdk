@@ -94,6 +94,7 @@ private:
     TelemetryHandler handler_; // 上报回调
     bool running_ = false;
     Stats stats_;
+    std::uint64_t sequence_ = 0;
 };
 
 } // namespace iotd

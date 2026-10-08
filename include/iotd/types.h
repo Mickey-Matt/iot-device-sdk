@@ -47,12 +47,14 @@ struct SensorReading {
 struct DeviceMessage {
     std::string device_id;         // 设备编号，例如 "fish-tank-01"
     std::int64_t timestamp_ms = 0; // Unix 毫秒时间戳
+    std::int64_t uptime_ms = 0;
     // 为什么时间戳必须写明是 64 位？因为 int 的大小由平台决定（常见 4 字节，
     // 最大约 21 亿），而毫秒时间戳现在是 1.7 万亿级别，用 int 直接溢出
     // （你可能听过"2038 年问题"——那是秒级时间戳撞上 32 位上限于 2038 年到期，
     // 毫秒级更早，1970 年 1 月就撞了，所以这里必须自己写清楚）
     // int64_t 明确表示"8 字节有符号"，换平台也不会变
     // 这也是上面 #include <cstdint> 唯一的原因
+    unsigned sequence = 0;
     SensorReading reading; // 嵌套一个 SensorReading
 
     // 结构体嵌套结构体，是表达"一个东西包含另一个东西"的最自然方式

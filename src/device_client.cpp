@@ -12,6 +12,15 @@
 namespace iotd {
 namespace {
 
+const std::int64_t kStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count();
+
+std::int64_t SteadyNowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
 std::int64_t NowMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -143,6 +152,8 @@ bool DeviceClient::PublishTelemetry(const SensorReading& reading) {
     DeviceMessage message;
     message.device_id = "fish-tank-01";
     message.timestamp_ms = NowMs();
+    message.uptime_ms = SteadyNowMs() - kStartMs;
+    message.sequence = ++sequence_;
     message.reading = reading;
 
     if (!handler_) {
