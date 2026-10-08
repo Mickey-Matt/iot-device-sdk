@@ -203,19 +203,31 @@ void MqttSource::Close() {
         return;
     }
 
-    // 【顺序很重要】先停后台线程，再断开、再销毁
-    // 如果先 destroy 而线程还在跑，线程会访问已释放的内存 → 崩溃
-    // 这类"线程与对象生命周期"的问题是 C++ 多线程最容易出事的地方
-    ::mosquitto_loop_stop(mosq_, /*force=*/true);
-
+    // 【顺序很重要，这三步不能随便换】
+    //
+    // 1) 必须先 disconnect，再 loop_stop —— 反过来会卡十几秒
+    //    后台线程平时阻塞在 poll() 上，而 poll 的超时是按 keepalive 算的
+    //    （keepalive_sec = 15 → 线程一睡就是十几秒），force=true 本该关掉
+    //    socket 把 poll 打断，但它在 Windows 上不生效（libmosquitto issue #117），
+    //    于是 loop_stop 里的 join 只能干等线程自己醒过来
+    //    disconnect 会主动唤醒线程，让它立刻看到停止标志
+    //    实测（libmosquitto 2.0.22 + MSYS2 UCRT64，keepalive=15，连接正常时）：
+    //      先 loop_stop 再 disconnect → 13011 ms
+    //      先 disconnect 再 loop_stop → 0 ms
+    //    这个坑只在【连接正常】时发作，连不上 broker 时线程在重连等待里，
+    //    force 恰好打得断，反而是 0 ms —— 所以它才这么难查
+    //
+    // 2) destroy 必须放在 loop_stop 之后：线程还在跑时 destroy 会让它
+    //    访问已释放的内存 → 崩溃
+    //
+    // 3) disconnect 也不能省：不发 DISCONNECT 报文的话，broker 会认为
+    //    你是"异常掉线"，可能要等 keepalive 超时才释放客户端 ID
     if (connected_.load()) {
-        // 发 DISCONNECT 报文，优雅下线
-        // 不调用它而直接 destroy 的话，broker 会认为你是"异常掉线"，
-        // 可能要等 keepalive 超时才发现 —— 客户端 ID 会被占住一段时间
         ::mosquitto_disconnect(mosq_);
         connected_ = false;
     }
 
+    ::mosquitto_loop_stop(mosq_, /*force=*/true);
     ::mosquitto_destroy(mosq_);
     mosq_ = nullptr;
 
