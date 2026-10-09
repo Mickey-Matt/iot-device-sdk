@@ -17,6 +17,10 @@
 #include "iotd/device_client.h"
 #include "iotd/json.h"
 
+#if defined(_WIN32)
+#include <windows.h> // SetConsoleOutputCP 需要它
+#endif
+
 namespace {
 
 int g_passed = 0;
@@ -133,7 +137,7 @@ void TestDeviceClientRejectsBadData() {
 
     // 温度超范围（模拟传感器故障）
     CHECK(
-        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":500.0,"humid":50})", msg, err));
+        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":110.0,"humid":50})", msg, err));
 
     // 湿度超范围
     CHECK(
@@ -163,6 +167,12 @@ void TestDumpRoundTrip() {
 } // namespace
 
 int main() {
+    // 控制台默认代码页是 936（GBK），UTF-8 的中文会被解成乱码
+    // 它改的是整个窗口而不是本进程，所以必须在任何输出之前调用
+#if defined(_WIN32)
+    ::SetConsoleOutputCP(CP_UTF8);
+#endif
+
     std::printf("===== iotd 测试开始 =====\n");
 
     TestJsonBasics();
