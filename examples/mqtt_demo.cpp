@@ -19,6 +19,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -39,6 +40,11 @@ std::atomic<bool> g_should_exit{false};
 
 void OnSignal(int) {
     g_should_exit = true;
+}
+
+std::int64_t SteadyNowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +186,16 @@ int main(int argc, char** argv) {
     //   它只决定"我们多快响应一条下发命令"，20ms ≈ 几乎无延迟
     //   就算改成 500ms，也只是命令晚半秒被执行，不影响连接可靠性
     std::atomic<int> tick{0};
+    const std::int64_t kStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch())
+                                      .count();
+    // uint64_t times = 0;
     while (!g_should_exit.load()) {
+        // ++times;
+        // if (times == 1000) {
+        //     g_should_exit = true;
+        //     LOG_INFO("1000轮用时 " << SteadyNowMs() - kStartMs << " ms");
+        // }
         client.PollOnce();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
 

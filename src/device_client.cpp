@@ -86,7 +86,7 @@ bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std:
         // 数据合理性校验：这一层经常被新手忽略，但它是"技术支持"的核心价值
         // 温度不可能是 500 度 —— 如果有，说明传感器坏了或报文被截断拼错了，
         // 这时候应该报警而不是把脏数据上报到云端
-        if (out.reading.temperature_c < -40.0 || out.reading.temperature_c > 125.0) {
+        if (out.reading.temperature_c < -40.0 || out.reading.temperature_c > 80.0) {
             error = "温度值超出合理范围：" + std::to_string(out.reading.temperature_c);
             return false;
         }
