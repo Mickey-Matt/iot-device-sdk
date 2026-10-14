@@ -103,9 +103,11 @@ public:
 };
 
 // 上报回调：MQTT 场景下，这里做的事情就是"把数据发出去"
+// 【注意】传的是整个 msg，不是 msg.reading —— 之前就是在这里把读数拆出来
+// 单独传的，序号和开机时长因此从来没进过报文，日志里却照打不误
 void OnTelemetry(iotd::MqttSource& source, const iotd::DeviceMessage& msg) {
     std::string error;
-    if (source.PublishTelemetry(msg.reading, error)) {
+    if (source.PublishTelemetry(msg, error)) {
         IOTD_LOG(iotd::Logger::Level::Info, "↑ 上报成功 #" << msg.sequence
                                                            << " temp=" << msg.reading.temperature_c
                                                            << "C humid=" << msg.reading.humidity_pct
@@ -173,7 +175,7 @@ int main(int argc, char** argv) {
     // --- 主循环 ---
     // 两个职责：
     //   1. client.PollOnce() → 内部调 MqttSource::Poll() → 从待投递队列取一条命令
-    //   2. 每 2 秒主动上报一次遥测
+    //   2. 每 100 轮主动上报一次遥测（实测约 3.1 秒，不是 2 秒 —— 见踩坑记录第 12 条）
     //
     // 【注意】网络收发【不在】这个循环里了
     // 用 mosquitto_loop_start() 之后，收发消息、心跳、自动重连全部由
@@ -199,7 +201,7 @@ int main(int argc, char** argv) {
         client.PollOnce();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-        // 每 100 轮（约 2 秒）产生并上报一条模拟数据
+        // 每 100 轮（实测约 3.1 秒）产生并上报一条模拟数据
         if (++tick % 100 == 0) {
             const int n = tick.load() / 100;
             iotd::SensorReading reading;

@@ -160,9 +160,20 @@ public:
     std::string Name() const override;
 
     // --- MQTT 特有：上行发布 ---
-    // 把一条遥测数据发布到 dev/{device_id}/up
+    // 把一条遥测消息发布到 dev/{device_id}/up
     // 返回 false 时 error 里会写明原因（未连接 / 报文过大 / 队列满）
-    bool PublishTelemetry(const SensorReading& reading, std::string& error);
+    //
+    // 【为什么参数是 DeviceMessage，而不是 SensorReading？】
+    // DeviceMessage 里本来就含着一个 SensorReading，只收 SensorReading
+    // 等于主动丢掉 device_id / timestamp_ms / uptime_ms / sequence 四项元数据
+    // 这里原本还留了一个"只收读数"的重载，调用方顺手用了它，结果
+    // DeviceClient 贴好的序号和开机时长一次都没进过报文（踩坑记录第 14 条）
+    // 所以只保留一个入口：上游给什么就原样发什么，元数据不可能在中途丢
+    //
+    // 唯一的例外是 device_id：它同时决定发布主题，主题和载荷必须说同一台
+    // 设备，所以取自 config_；剩下三项都是"每条消息各不相同"的属性，
+    // 只能由 DeviceMessage 提供 —— 这条界线就是两个类的分工边界
+    bool PublishTelemetry(const DeviceMessage& message, std::string& error);
 
     // 发布任意字符串到指定主题（调试用，比如手工注入一条命令）
     bool Publish(const std::string& topic, const std::string& payload, std::string& error);

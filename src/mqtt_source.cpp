@@ -278,19 +278,23 @@ ReadResult MqttSource::Poll() {
 // ===========================================================================
 // 上行发布
 // ===========================================================================
-bool MqttSource::PublishTelemetry(const SensorReading& reading, std::string& error) {
+bool MqttSource::PublishTelemetry(const DeviceMessage& message, std::string& error) {
     // 手工拼一条 JSON 报文
     // 这里刻意不用 json::Dump —— 因为要演示"设备侧怎么产生报文"，
     // 而且真实嵌入式设备也是这么一位一位拼出来的（省内存）
+    //
+    // 字段来源的分工：device_id 取自 config_（它同时决定主题），
+    // timestamp_ms / uptime_ms / seq 只能取自 message ——
+    // 这三项是"每条消息各不相同"的属性，由 DeviceClient 在生成消息时填好，
+    // 在这里重新取一次时间戳就等于有两个时间来源，日志和报文会对不上
     char buf[256];
-    std::snprintf(
-        buf, sizeof(buf),
-        R"({"device_id":"%s","timestamp_ms":%lld,"temp":%.2f,"humid":%.2f,"light_lux":%d})",
-        config_.device_id.c_str(),
-        static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   std::chrono::system_clock::now().time_since_epoch())
-                                   .count()),
-        reading.temperature_c, reading.humidity_pct, reading.light_lux);
+    std::snprintf(buf, sizeof(buf),
+                  R"({"device_id":"%s","timestamp_ms":%lld,"uptime_ms":%lld,"seq":%u,)"
+                  R"("temp":%.2f,"humid":%.2f,"light_lux":%d})",
+                  config_.device_id.c_str(), static_cast<long long>(message.timestamp_ms),
+                  static_cast<long long>(message.uptime_ms), message.sequence,
+                  message.reading.temperature_c, message.reading.humidity_pct,
+                  message.reading.light_lux);
     return Publish(UpTopic(), buf, error);
 }
 
