@@ -65,15 +65,29 @@ namespace iotd {
 // ---------------------------------------------------------------------------
 // MqttConfig：MQTT 连接配置
 //
-// 【为什么定义在类外面，而不是写成 MqttSource::Config 嵌套类？】
-// 因为踩过一个真实的编译错误：如果 Config 是嵌套类，
-// 那么 MqttSource 自己的构造函数就不能写 `MqttSource(Config config = Config{})` ——
-// 那要求在 Config 所在的外层类【还没定义完】之前就使用 Config 的默认成员初始化器，
-// GCC 16 会直接报错：
+// 【为什么真类型在类外面，类里只留一个 using 别名？】
+// 这是 STL 的惯例：真类型放命名空间层级，类里给一个嵌套短名。对照 vector：
+//   typedef size_t size_type;        → 真类型是 std::size_t
+//   typedef _Alloc allocator_type;   → 真类型是 std::allocator<T>
+// 于是调用方既能写 std::allocator<int>，也能写 vector<int>::allocator_type
+// 工业界的 MQTT SDK 也一样：Paho 的 mqtt::connect_options、AWS 的
+// Aws::Iot::MqttClientConnectionConfig 都在命名空间层级，
+// 而且它们连嵌套短名都没提供
+//
+// 判断标准是"这个类型离开外层类还说不说得通"：
+//   说得通（自包含的数据包）→ 命名空间层级 + 嵌套别名
+//   说不通（生命周期绑定 / 要访问私有成员 / 只是外层类的零件）
+//     → 真嵌套类，像 locale::facet、map::value_compare 那样
+//
+// 放命名空间层级还有个实际好处：可以单独前向声明
+//   struct MqttConfig;   ← 只用引用时不必 include 这个头文件
+// 嵌套类做不到，写成 "class MqttSource::Config;" 只有警告、不声明任何东西
+//
+// 顺带绕开了一个 GCC 的已知 bug：如果 Config 是"带默认成员初始化的嵌套类"，
+// 又出现在外层类的默认实参里（MqttSource(Config = Config{})），GCC 16 会报
 //   "default member initializer for 'broker_host' required before the end of
 //    its enclosing class"
-// 把 Config 提到命名空间层级，它就是一个完整的类型，怎么用都没问题
-// 类里再用 using Config = MqttConfig; 保留 MqttSource::Config 这种写法
+// 详见 docs/踩坑记录.md 第 13 条
 // ---------------------------------------------------------------------------
 struct MqttConfig {
     std::string broker_host = "localhost"; // broker 地址，本机就是 localhost
@@ -185,6 +199,8 @@ protected:
 private:
     // 回调必须是静态函数或自由函数（C 库不认 C++ 成员函数指针），
     // 所以用 static + void* 把 this 传进来 —— 这是 C 回调的经典写法
+    // C 库在触发回调时，会把 void* obj（通常是 this 指针）原封不动地传回来，
+    // 这样就能在静态回调函数里通过 static_cast<MqttSource*>(obj) 重新拿到对象的 this 指针
     static void OnConnectStatic(struct mosquitto* mosq, void* obj, int rc);
     static void OnDisconnectStatic(struct mosquitto* mosq, void* obj, int rc);
     static void OnMessageStatic(struct mosquitto* mosq, void* obj,
