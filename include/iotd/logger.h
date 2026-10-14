@@ -27,7 +27,8 @@ class Logger {
 public:
     enum class Level { Debug, Info, Warn, Error };
 
-    // 单例模式：全程序只有一个 Logger，任何地方都能通过 Logger::Instance() 拿到它
+    // 迈耶斯单例：全程序只有这一个 Logger入口(logger的构造函数被设为私有)
+    // 返回值为引用避免拷贝的同时还支持链式调用
     //
     // 为什么要单例？因为日志是"全局横切关注点"——
     // 几乎每个函数都想记日志，如果靠参数一层层传 Logger，代码会被污染得很难看
