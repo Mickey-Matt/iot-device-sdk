@@ -1,11 +1,16 @@
 // ===========================================================================
 // src/mqtt_sink.cpp  —— libmosquitto 的接入实现
 //
+// 本类只负责"怎么把报文送出去、怎么把命令收回来"，
+// "该发什么"由 DeviceClient 决定（接口定义见 telemetry_sink.h）
+//
 // 阅读顺序建议：
-//   1. 看 Open()   —— 连接是怎么建立的、回调是怎么挂上的
-//   2. 看 Poll()   —— 网络 I/O 和消息投递是怎么驱动的
-//   3. 看 HandleConnect/HandleDisconnect —— 自动重连的原理
-//   4. 最后看 PublishTelemetry —— 上行发布
+//   1. Open()  —— 一个 MQTT 客户端要搭哪几步，回调是怎么挂上的
+//   2. Publish() / PublishRaw()  —— 上行：数据怎么变成报文发出去
+//   3. HandleConnect() / HandleDisconnect()  —— 订阅的时机、自动重连的原理
+//   4. 下行链路：OnMessageStatic() → HandleMessage() → OnCommand()
+//      broker 推来的命令怎么进到我们代码里（注意这三个回调不在主线程）
+//   5. Close()  —— 收尾三步的顺序为什么不能换
 // ===========================================================================
 
 #include "iotd/mqtt_sink.h"
@@ -451,9 +456,8 @@ void MqttSink::HandleMessage(const std::string& topic, const std::string& payloa
 }
 
 void MqttSink::OnCommand(const std::string& topic, const std::string& payload) {
-    // 默认实现：只打日志
+    // 基类默认实现：只打日志
     // 真实业务里这里会是"解析命令 → 操作硬件 → 回执"
-    // 打开这个日志是为了让你能直观看到"下行链路是通的"
     LOG_INFO("[默认命令处理] " << topic << " -> " << payload);
 }
 
