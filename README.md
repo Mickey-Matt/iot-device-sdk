@@ -100,16 +100,23 @@ iot-device-sdk/
 │   ├─ types.h                 公共数据结构：SensorReading / DeviceMessage
 │   ├─ json.h                  JSON 解析器接口
 │   ├─ logger.h                日志器
-│   ├─ data_source.h           数据源抽象接口（多态的核心）
+│   ├─ data_source.h           数据源抽象接口（数据从哪来）
+│   ├─ telemetry_sink.h        上报出口抽象接口（数据往哪去）
 │   ├─ mock_source.h           模拟数据源
 │   ├─ serial_port_source.h    串口数据源（Windows API）
+│   ├─ mqtt_sink.h             MQTT 出口：上报遥测 + 接收命令
+│   ├─ log_sink.h              只打日志的出口（不联网）
 │   └─ device_client.h         设备客户端：SDK 主入口
 ├─ src/                        实现（使用者不需要看）
 ├─ examples/device_sim.cpp     示例程序：模拟设备持续上报
+├─ examples/mqtt_demo.cpp      示例程序：完整的网关（采集 → 上报 → 收命令）
 ├─ tools/iot_debug_main.cpp    调试工具：命令行多子命令
 ├─ tests/test_json.cpp         单元测试
 ├─ samples/                    示例报文（含正常与损坏两种）
-└─ docs/                       设计文档、FAQ、排障案例
+└─ docs/
+    ├─ 实测记录.md              跑出来的真实日志和抓包结果
+    ├─ 踩坑记录.md              踩过的坑 + 排查过程 + 取舍理由
+    └─ 问题清单.md              已发现、还没改的问题
 ```
 
 **为什么头文件和实现分开？**
@@ -168,7 +175,7 @@ while (!g_should_exit) {
 | 坏帧不致命 | 解析失败只记录并跳过，不退出进程 | "一帧坏数据导致服务挂掉" |
 | 错误精确定位 | JSON 解析器报告出错字符位置 | "到底哪个字节有问题" |
 | 原始内容留证 | 坏帧原样打印，不只报"解析失败" | "事后无法复现" |
-| 数据合理性校验 | 温度 -40~125℃、湿度 0~100% 边界检查 | "传感器故障导致的脏数据" |
+| 数据合理性校验 | 温度 -40~80℃、湿度 0~100% 边界检查 | "传感器故障导致的脏数据" |
 | 链路健康度 | 帧数/成功数/失败数统计 | "客户说老掉线，先看哪个指标" |
 | BOM 兼容 | 自动剥离 UTF-8 BOM | "记事本存的文件解析不了" |
 
@@ -178,8 +185,11 @@ while (!g_should_exit) {
 
 - [x] **M1** 数据源抽象 + 模拟源 + 串口源 + JSON 解析 + 日志 + 测试
 - [x] **M2** 接入 MQTT（libmosquitto）：上行发布、下行订阅、QoS 1、指数退避自动重连、命令回执
+- [x] **M2.5** 上报出口抽象（`ITelemetrySink`）：把 MQTT 从"数据源"改回"出口"，入站出站对称
 - [ ] **M3** 补齐 5 个示例程序（publish / subscribe / reconnect / serial_bridge / multi_device）
 - [ ] **M4** 文档：设计说明（DESIGN.md）、FAQ、排障案例集（含 Wireshark 抓包与日志证据）
+
+> 已发现但还没改的问题（含具体改法）记在 `docs/问题清单.md`
 
 ### M2 实测状态（2026-10-01）
 
