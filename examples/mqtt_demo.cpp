@@ -146,15 +146,17 @@ int main(int argc, char** argv) {
     config.reconnect_delay_max_sec = 8; // 最多等到 8 秒（演示时不用等太久）
 
     // --- 准备两个对象：一个"从哪读"，一个"往哪发" ---
-    FishTankDevice device(config); // 既当数据源，也当上报出口（同一个 socket 两用）
-    iotd::MockSource sensor(3000); // 每 3 秒造一帧假数据，将来换成 SerialPortSource
+    // 注意这是两个不同的东西，不是同一个对象的两副面孔：
+    //   sensor 产生数据（模拟器，将来换成串口）
+    //   device 接收数据（发到 broker，顺便接收下行命令）
+    FishTankDevice device(config); // 出口：上报到云 + 收命令
+    iotd::MockSource sensor(3000); // 来源：每 3 秒造一帧假数据
 
     // --- 把它们交给 DeviceClient ---
-    // 注意两个参数的类型不一样：
+    // 两个参数的类型不一样：
     //   第一个是 IDataSource&      —— 它从这读
     //   第二个是 ITelemetrySink&   —— 它往这发
-    // 而 device 这一个对象同时满足两个接口，所以两处都传它
-    // （标准库的 std::iostream 就是这个套路：一个对象，既能读又能写）
+    // DeviceClient 对两者都只认接口，不认具体是实现哪个类
     iotd::DeviceClient client(sensor, device);
 
     std::string error;
