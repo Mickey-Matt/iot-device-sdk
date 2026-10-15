@@ -118,30 +118,45 @@ iot-device-sdk/
 
 ---
 
-## 架构：数据源可替换
+## 架构：两头都可替换
 
 ```text
-                    IDataSource  (抽象接口)
-                          ▲
-          ┌───────────────┼───────────────┐
-    MockSource      SerialPortSource     MqttSource
-  （无硬件自测 /      （真实串口，      （接入 broker，
-    测试注入）         Windows API）      上行发布+下行订阅）
-                          │
-                          ▼
-                    DeviceClient
-              （解析报文 → 统计 → 回调上报）
-                          │
-                          ▼
-                  TelemetryHandler
-        （示例里：打印+落盘；也可改成发 MQTT / 写数据库）
+    IDataSource  (抽象接口)                        ITelemetrySink  (抽象接口)
+          |                                                |
+  +-------+--------+                        +--------------+--------------+
+MockSource   SerialPortSource            MqttSink                     LogSink
+(无硬件自测 /  (真实串口，          (接入 broker，上报到云)    (只打日志，不联网)
+  测试注入)      Windows API)
+          |                                                |
+          +-------------------+                +-----------+
+                              v                |
+                         DeviceClient ---------+
+                  (取一帧 -> 解析 -> 校验 -> 贴标签 -> 交给出口)
 ```
 
-**设计要点**：`DeviceClient` 只依赖 `IDataSource` 接口，不知道数据从哪来，因此：
+**设计要点**：`DeviceClient` 只认两个接口，不知道数据从哪来，也不知道数据往哪去，因此：
 
-- 接入 MQTT 时**不需要修改 DeviceClient 一行代码**，只需新增一个 `MqttSource`
+- **换数据源**：模拟器 ↔ 真实串口，`DeviceClient` 一行代码不用改
+- **换上报方式**：打进日志 ↔ 发到云端，`DeviceClient` 一行代码不用改
 - 单元测试可以用 Mock 注入半包、乱码、超长帧等边界数据
-- 没有硬件也能开发和演示
+- 没有硬件、没有 broker 也能开发和演示
+
+**上下游各一个接口，是对称的**：`IDataSource` 回答"从哪读"，`ITelemetrySink` 回答"往哪发"
+
+一个真实的网关就是把它们接起来（见 `examples/mqtt_demo.cpp`）：
+
+```cpp
+iotd::MqttSink   cloud(config);      // 出口：上报到云 + 接收命令
+iotd::MockSource sensor(3000);       // 来源：模拟传感器（换 SerialPortSource 就是真硬件）
+iotd::DeviceClient client(sensor, cloud);
+
+while (!g_should_exit) {
+    client.PollOnce();               // 整条上行链路就这一行
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+```
+
+**命令下行不走 `DeviceClient`** —— 命令是"事件"（立刻做一件事），遥测是"数据流"（攒起来往上发），两者语义不同，所以命令从 broker 直接进 `MqttSink::OnCommand` 虚函数，由你的子类处理
 
 ---
 
