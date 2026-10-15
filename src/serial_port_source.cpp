@@ -3,13 +3,13 @@
 //
 // 【本项目技术含量最高的一个文件，也是面试最值得讲的一个】
 //
-// 核心问题：串口是"字节流"，不是"消息流"。
+// 核心问题：串口是"字节流"，不是"消息流"
 //   你调用一次 ReadFile，可能只收到半条 JSON，
-//   也可能一次收到三条 JSON 拼在一起。
-//   前者叫"半包/拆包"，后者叫"粘包" —— 这是串口编程第一大坑。
+//   也可能一次收到三条 JSON 拼在一起
+//   前者叫"半包/拆包"，后者叫"粘包" —— 这是串口编程第一大坑
 //
 // 解决方案（行业标准做法）：
-//   1. 定义一个"帧边界"。本项目用换行符 '\n' 作为一帧的结束。
+//   1. 定义一个"帧边界"，本项目用换行符 '\n' 作为一帧的结束
 //      （真实协议里也可能是固定长度、或者带长度字段的头部）
 //   2. 把收到的所有字节先追加进一个缓冲区 buffer_
 //   3. 每次从缓冲区里找 '\n'：
@@ -18,7 +18,7 @@
 //   4. 缓冲区设上限：如果一直收不到换行符，超过上限就丢弃并报警，
 //      否则恶意或异常数据会把内存撑爆
 //
-// 这套逻辑在面试里叫"分帧"，能讲清楚它是很强的加分项。
+// 这套逻辑在面试里叫"分帧"，能讲清楚它是很强的加分项
 // ===========================================================================
 
 #include "iotd/serial_port_source.h"
@@ -31,7 +31,7 @@
 namespace iotd {
 namespace {
 
-// 缓冲区上限：8KB。正常一帧 JSON 也就几百字节，超过说明出了异常。
+// 缓冲区上限：8KB，正常一帧 JSON 也就几百字节，超过说明出了异常
 constexpr std::size_t kMaxBufferBytes = 8 * 1024;
 
 } // namespace
@@ -41,8 +41,8 @@ SerialPortSource::SerialPortSource(std::string port_name, int baud_rate)
 
 SerialPortSource::~SerialPortSource() {
     // 析构函数里关闭句柄 —— 这是 RAII 的思想：
-    // 对象生命周期结束时，它持有的资源自动释放，不需要调用方记得手动关。
-    // 即使中途发生异常，析构函数依然会被调用（栈展开），所以不会泄漏。
+    // 对象生命周期结束时，它持有的资源自动释放，不需要调用方记得手动关
+    // 即使中途发生异常，析构函数依然会被调用（栈展开），所以不会泄漏
     Close();
 }
 
@@ -84,7 +84,7 @@ bool SerialPortSource::Open(std::string& error) {
 
     // -----------------------------------------------------------------------
     // 关键点 2：配置串口参数（波特率、数据位、校验、停止位）
-    // 这些参数必须和设备端完全一致，否则收到的全是乱码。
+    // 这些参数必须和设备端完全一致，否则收到的全是乱码
     // -----------------------------------------------------------------------
     DCB dcb{};
     dcb.DCBlength = sizeof(dcb);
@@ -115,8 +115,8 @@ bool SerialPortSource::Open(std::string& error) {
 
     // -----------------------------------------------------------------------
     // 关键点 3：设置读超时
-    //   如果超时全设为 0，ReadFile 会一直阻塞等数据，程序就无法响应 Ctrl+C。
-    //   这里设成"最多等 50ms 就返回"，配合非阻塞的 Poll() 语义。
+    //   如果超时全设为 0，ReadFile 会一直阻塞等数据，程序就无法响应 Ctrl+C
+    //   这里设成"最多等 50ms 就返回"，配合非阻塞的 Poll() 语义
     // -----------------------------------------------------------------------
     COMMTIMEOUTS timeouts{};
     timeouts.ReadIntervalTimeout = 20;      // 两字节之间最多间隔 20ms
@@ -179,8 +179,8 @@ ReadResult SerialPortSource::Poll() {
     // --- 第 2 步：从缓冲区里切出一整帧 ---
     const std::size_t newline_pos = buffer_.find('\n');
     if (newline_pos == std::string::npos) {
-        // 还没收到换行符 → 这帧不完整，等下次。
-        // 但要做长度保护，防止缓冲区无限增长。
+        // 还没收到换行符 → 这帧不完整，等下次
+        // 但要做长度保护，防止缓冲区无限增长
         if (buffer_.size() > kMaxBufferBytes) {
             result.error = "缓冲区超过 8KB 仍未收到换行符，已丢弃（可能是波特率不匹配导致乱码）";
             buffer_.clear();
@@ -192,8 +192,8 @@ ReadResult SerialPortSource::Poll() {
     std::string frame = buffer_.substr(0, newline_pos);
     buffer_.erase(0, newline_pos + 1);
 
-    // 处理 Windows 换行是 \r\n 的情况：把结尾的 \r 去掉。
-    // 如果不处理，JSON 解析器会把 \r 当成非法字符报错 —— 这是个经典坑。
+    // 处理 Windows 换行是 \r\n 的情况：把结尾的 \r 去掉
+    // 如果不处理，JSON 解析器会把 \r 当成非法字符报错 —— 这是个经典坑
     if (!frame.empty() && frame.back() == '\r') {
         frame.pop_back();
     }
@@ -211,10 +211,10 @@ std::vector<std::string> SerialPortSource::ListAvailablePorts() {
     std::vector<std::string> ports;
 
 #if defined(_WIN32)
-    // 逐个尝试打开 COM1..COM32。
+    // 逐个尝试打开 COM1..COM32
     // 说明：更专业的做法是调 SetupAPI 枚举设备，但那样要引入 setupapi.lib、
-    // 代码量翻三倍。这里选用最简单的实现，够用即可 ——
-    // 工程上这叫"先让它能工作，再让它更优雅"。
+    // 代码量翻三倍，这里选用最简单的实现，够用即可 ——
+    // 工程上这叫"先让它能工作，再让它更优雅"
     for (int i = 1; i <= 32; ++i) {
         const std::string name = "COM" + std::to_string(i);
         const std::string path = "\\\\.\\" + name;

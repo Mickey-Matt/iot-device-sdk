@@ -14,17 +14,17 @@ namespace iotd {
 
 Logger& Logger::Instance() {
     // C++11 起，函数内 static 变量的初始化是"线程安全"的，
-    // 并且只会在第一次调用时初始化一次。这是实现单例最简洁的写法。
+    // 并且只会在第一次调用时初始化一次，这是实现单例最简洁的写法
     static Logger instance;
     return instance;
 }
 
 const char* Logger::LevelName(Level level) {
     switch (level) {
-    case Level::Debug: return "DEBUG";
-    case Level::Info: return "INFO ";
-    case Level::Warn: return "WARN ";
-    case Level::Error: return "ERROR";
+        case Level::Debug: return "DEBUG";
+        case Level::Info: return "INFO ";
+        case Level::Warn: return "WARN ";
+        case Level::Error: return "ERROR";
     }
     return "?????";
 }
@@ -63,19 +63,19 @@ void Logger::Log(Level level, const std::string& message) {
         return; // 级别不够，直接丢弃
     }
 
-    // 【加锁】整个输出过程必须原子完成。
+    // 【加锁】整个输出过程必须原子完成
     // 把 NowString() 也放进锁里，是为了保证同一行的"时间戳"和"内容"
-    // 确实来自同一次调用，不会出现 A 的时间戳配上 B 的内容。
+    // 确实来自同一次调用，不会出现 A 的时间戳配上 B 的内容
     std::lock_guard<std::mutex> lock(mutex_);
 
     const std::string line = NowString() + " [" + LevelName(level) + "] " + message;
 
-    // 屏幕输出。用 std::cerr 输出，保证它不会被缓冲区吞掉
+    // 屏幕输出，用 std::cerr 输出，保证它不会被缓冲区吞掉
     std::cerr << line << '\n';
 
-    // 文件输出。每写一行立刻 flush ——
+    // 文件输出，每写一行立刻 flush ——
     // 因为程序崩溃时，缓冲区里没落盘的内容会丢失，
-    // 而崩溃前最后几行日志往往正是你最需要看的。
+    // 而崩溃前最后几行日志往往正是你最需要看的
     if (file_.is_open()) {
         file_ << line << '\n';
         file_.flush();

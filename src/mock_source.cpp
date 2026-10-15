@@ -23,10 +23,10 @@ std::int64_t NowMs() {
 
 MockSource::MockSource(int interval_ms)
     : interval_ms_(interval_ms),
-      // 用固定种子(42)：每次运行产生的"随机"数据都一样。
-      // 这在调试时非常重要 —— 你能复现上一次看到的现象。
-      // 如果每次数据都不同，你永远说不清"这个问题到底是不是随机的"。
-      rng_(42), temp_dist_(24.0, 28.0), humid_dist_(50.0, 70.0) {}
+      // 用固定种子(42)：每次运行产生的"随机"数据都一样
+      // 这在调试时非常重要 —— 你能复现上一次看到的现象
+      // 如果每次数据都不同，你永远说不清"这个问题到底是不是随机的"
+      rng_(42), temp_dist_(24.0, 28.0), humid_dist_(50.0, 70.0), light_dist_(400, 450) {}
 
 bool MockSource::Open(std::string& error) {
     if (interval_ms_ <= 0) {
@@ -48,13 +48,13 @@ std::string MockSource::BuildFrame() {
 
     if (inject_corrupted_) {
         inject_corrupted_ = false;
-        // 故意缺一个右花括号，模拟"串口粘包/丢字节"造成的半包。
-        // 真实项目里这种情况比你想象的常见得多。
+        // 故意缺一个右花括号，模拟"串口粘包/丢字节"造成的半包
+        // 真实项目里这种情况比你想象的常见得多
         return R"({"device_id":"fish-tank-01","temp":25.1,"humid":60.2)";
     }
 
     // 偶尔注入一帧坏数据（每 7 帧一次），
-    // 让你在正常运行时也能看到程序如何优雅处理坏报文，而不是崩溃。
+    // 让你在正常运行时也能看到程序如何优雅处理坏报文，而不是崩溃
     if (counter_ % 7 == 0) {
         return R"({"device_id":"fish-tank-01","temp":25.1,)";
     }
@@ -62,9 +62,9 @@ std::string MockSource::BuildFrame() {
     char buf[256];
     std::snprintf(buf, sizeof(buf),
                   R"({"device_id":"fish-tank-01","timestamp_ms":%lld,)"
-                  R"("temp":%.2f,"humid":%.2f,"light_lux":%d})",
+                  R"("temp":%.2f,"humid":%.2f,"light_lux":%f})",
                   static_cast<long long>(NowMs()), temp_dist_(rng_), humid_dist_(rng_),
-                  static_cast<int>(300 + counter_ % 50));
+                  light_dist_(rng_));
     return buf;
 }
 
@@ -76,8 +76,8 @@ ReadResult MockSource::Poll() {
         return result;
     }
 
-    // 非阻塞语义：时间没到就直接返回"没数据"。
-    // 这样主循环可以继续做别的事（比如检查用户有没有按 Ctrl+C）。
+    // 非阻塞语义：时间没到就直接返回"没数据"
+    // 这样主循环可以继续做别的事（比如检查用户有没有按 Ctrl+C）
     const std::int64_t now = NowMs();
     if (now < next_due_ms_) {
         return result; // has_data 保持 false

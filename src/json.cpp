@@ -1,16 +1,16 @@
 // ===========================================================================
 // src/json.cpp  —— JSON 解析器的实现
 //
-// 解析方法叫"递归下降"（recursive descent）。思想极其简单：
+// 解析方法叫"递归下降"（recursive descent），思想极其简单：
 //   从左到右扫描字符，遇到 { 就进入对象，遇到 [ 就进入数组，
-//   对象/数组里再遇到 { 就再递归进去。
+//   对象/数组里再遇到 { 就再递归进去
 //
 // 之所以能用递归，是因为 JSON 的语法本身就是递归定义的：
 //   值 := 字符串 | 数字 | 布尔 | 对象 | 数组
 //   对象 := { 键值对列表 }
 //   值 := ……  又回到开头
 //
-// 这是计算机科学里最优雅的一类算法：数据结构是递归的，处理它的代码也是递归的。
+// 这是计算机科学里最优雅的一类算法：数据结构是递归的，处理它的代码也是递归的
 // ===========================================================================
 
 #include "iotd/json.h"
@@ -28,7 +28,7 @@ namespace json {
 std::string JsonValue::AsString(const std::string& fallback) const {
     // std::get_if<T>(&data) 的语义：
     //   如果 data 里装的正好是 T，返回指向它的指针；
-    //   否则返回 nullptr。绝不抛异常，所以要先判断。
+    //   否则返回 nullptr，绝不抛异常，所以要先判断
     if (const auto* p = std::get_if<std::string>(&data)) {
         return *p;
     }
@@ -50,16 +50,16 @@ bool JsonValue::AsBool(bool fallback) const {
 }
 
 // ===========================================================================
-// 下面是解析器的内部实现。放进 detail 命名空间，
-// 表示"这是内部细节，外部不要直接调用"。
+// 下面是解析器的内部实现，放进 detail 命名空间，
+// 表示"这是内部细节，外部不要直接调用"
 // ===========================================================================
 namespace detail {
 
-// Parser 是一个"解析器对象"。
+// Parser 是一个"解析器对象"
 // 它内部持有两个状态：
 //   text_ —— 要解析的原始文本（const 引用，不拷贝，零成本）
 //   pos_  —— 当前扫描到第几个字符
-// 这种"把状态和数据绑在一起"的做法，就是面向对象的基本功。
+// 这种"把状态和数据绑在一起"的做法，就是面向对象的基本功
 class Parser {
 public:
     explicit Parser(const std::string& text) : text_(text), pos_(0) {}
@@ -94,14 +94,14 @@ private:
         }
         // 注意 static_cast<unsigned char>：
         // std::isspace 的参数是 int，如果直接传 char，
-        // 当字符值 > 127（比如中文 UTF-8 字节）时会被解释成负数，行为未定义。
-        // 这是 C++ 里极其经典的一个坑，面试也常问。
+        // 当字符值 > 127（比如中文 UTF-8 字节）时会被解释成负数，行为未定义
+        // 这是 C++ 里极其经典的一个坑，面试也常问
     }
 
     // 抛出一个"带位置信息"的错误
     [[noreturn]] void Fail(const std::string& message) const { throw ParseError(message, pos_); }
-    // [[noreturn]] 是 C++11 属性，告诉编译器"这个函数一定不会正常返回"。
-    // 好处：编译器知道后面的代码不会执行，不会误报"缺少返回值"的警告。
+    // [[noreturn]] 是 C++11 属性，告诉编译器"这个函数一定不会正常返回"
+    // 好处：编译器知道后面的代码不会执行，不会误报"缺少返回值"的警告
 
     // 期望读到某个字符，读不到就报错
     void Expect(char expected) {
@@ -130,24 +130,24 @@ private:
         }
 
         switch (Peek()) {
-        case '{': return ParseObject();
-        case '[': return ParseArray();
-        case '"': return JsonValue(ParseString());
-        case 't':
-            if (MatchLiteral("true"))
-                return JsonValue(true);
-            Fail("无法识别的字面量");
-        case 'f':
-            if (MatchLiteral("false"))
-                return JsonValue(false);
-            Fail("无法识别的字面量");
-        case 'n':
-            if (MatchLiteral("null"))
-                return JsonValue(); // 默认构造即 Null
-            Fail("无法识别的字面量");
-        default:
-            // 剩下只可能是数字
-            return JsonValue(ParseNumber());
+            case '{': return ParseObject();
+            case '[': return ParseArray();
+            case '"': return JsonValue(ParseString());
+            case 't':
+                if (MatchLiteral("true"))
+                    return JsonValue(true);
+                Fail("无法识别的字面量");
+            case 'f':
+                if (MatchLiteral("false"))
+                    return JsonValue(false);
+                Fail("无法识别的字面量");
+            case 'n':
+                if (MatchLiteral("null"))
+                    return JsonValue(); // 默认构造即 Null
+                Fail("无法识别的字面量");
+            default:
+                // 剩下只可能是数字
+                return JsonValue(ParseNumber());
         }
     }
 
@@ -241,13 +241,13 @@ private:
                 }
                 char esc = text_[pos_++];
                 switch (esc) {
-                case '"': out.push_back('"'); break;
-                case '\\': out.push_back('\\'); break;
-                case '/': out.push_back('/'); break;
-                case 'n': out.push_back('\n'); break;
-                case 'r': out.push_back('\r'); break;
-                case 't': out.push_back('\t'); break;
-                default: Fail("不支持的转义字符");
+                    case '"': out.push_back('"'); break;
+                    case '\\': out.push_back('\\'); break;
+                    case '/': out.push_back('/'); break;
+                    case 'n': out.push_back('\n'); break;
+                    case 'r': out.push_back('\r'); break;
+                    case 't': out.push_back('\t'); break;
+                    default: Fail("不支持的转义字符");
                 }
                 continue;
             }
@@ -302,65 +302,65 @@ void Indent(std::string& out, int depth) {
 
 void DumpValue(const JsonValue& value, std::string& out, int depth) {
     switch (value.type) {
-    case JsonValue::Type::Null: out += "null"; break;
-    case JsonValue::Type::Bool: out += value.AsBool() ? "true" : "false"; break;
-    case JsonValue::Type::Number: {
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%.3f", value.AsNumber());
-        out += buf;
-        break;
-    }
-    case JsonValue::Type::String:
-        out += '"';
-        for (char c : value.AsString()) {
-            if (c == '"' || c == '\\')
-                out.push_back('\\');
-            if (c == '\n') {
-                out += "\\n";
-                continue;
+        case JsonValue::Type::Null: out += "null"; break;
+        case JsonValue::Type::Bool: out += value.AsBool() ? "true" : "false"; break;
+        case JsonValue::Type::Number: {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.3f", value.AsNumber());
+            out += buf;
+            break;
+        }
+        case JsonValue::Type::String:
+            out += '"';
+            for (char c : value.AsString()) {
+                if (c == '"' || c == '\\')
+                    out.push_back('\\');
+                if (c == '\n') {
+                    out += "\\n";
+                    continue;
+                }
+                out.push_back(c);
             }
-            out.push_back(c);
-        }
-        out += '"';
-        break;
-    case JsonValue::Type::Object: {
-        const auto& obj = std::get<Object>(value.data);
-        if (obj.empty()) {
-            out += "{}";
+            out += '"';
+            break;
+        case JsonValue::Type::Object: {
+            const auto& obj = std::get<Object>(value.data);
+            if (obj.empty()) {
+                out += "{}";
+                break;
+            }
+            out += "{\n";
+            std::size_t i = 0;
+            for (const auto& kv : obj) {
+                Indent(out, depth + 1);
+                out += '"' + kv.first + "\": ";
+                DumpValue(kv.second, out, depth + 1);
+                if (++i < obj.size())
+                    out += ',';
+                out += '\n';
+            }
+            Indent(out, depth);
+            out += '}';
             break;
         }
-        out += "{\n";
-        std::size_t i = 0;
-        for (const auto& kv : obj) {
-            Indent(out, depth + 1);
-            out += '"' + kv.first + "\": ";
-            DumpValue(kv.second, out, depth + 1);
-            if (++i < obj.size())
-                out += ',';
-            out += '\n';
-        }
-        Indent(out, depth);
-        out += '}';
-        break;
-    }
-    case JsonValue::Type::Array: {
-        const auto& arr = std::get<Array>(value.data);
-        if (arr.empty()) {
-            out += "[]";
+        case JsonValue::Type::Array: {
+            const auto& arr = std::get<Array>(value.data);
+            if (arr.empty()) {
+                out += "[]";
+                break;
+            }
+            out += "[\n";
+            for (std::size_t i = 0; i < arr.size(); ++i) {
+                Indent(out, depth + 1);
+                DumpValue(arr[i], out, depth + 1);
+                if (i + 1 < arr.size())
+                    out += ',';
+                out += '\n';
+            }
+            Indent(out, depth);
+            out += ']';
             break;
         }
-        out += "[\n";
-        for (std::size_t i = 0; i < arr.size(); ++i) {
-            Indent(out, depth + 1);
-            DumpValue(arr[i], out, depth + 1);
-            if (i + 1 < arr.size())
-                out += ',';
-            out += '\n';
-        }
-        Indent(out, depth);
-        out += ']';
-        break;
-    }
     }
 }
 } // namespace

@@ -1,7 +1,7 @@
 // ===========================================================================
 // iotd/mock_source.h
 //
-// 模拟数据源：不需要任何硬件，自己造 JSON 报文。
+// 模拟数据源：不需要任何硬件，自己造 JSON 报文
 //
 // 它的价值：
 //   1. 让你今天就能跑通全流程（否则你要先买开发板）
@@ -43,6 +43,7 @@ private:
     std::mt19937 rng_;             // 随机数引擎
     std::uniform_real_distribution<double> temp_dist_;
     std::uniform_real_distribution<double> humid_dist_;
+    std::uniform_real_distribution<double> light_dist_;
 };
 
 } // namespace iotd

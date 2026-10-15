@@ -12,6 +12,15 @@
 namespace iotd {
 namespace {
 
+const std::int64_t kStartMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count();
+
+std::int64_t SteadyNowMs() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
 std::int64_t NowMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -19,10 +28,10 @@ std::int64_t NowMs() {
 
 } // namespace
 
-DeviceClient::DeviceClient(IDataSource& source, TelemetryHandler handler)
-    : source_(source), handler_(std::move(handler)) {}
-// std::move(handler) 把传进来的回调"搬"进成员变量，避免一次拷贝。
-// 对于 std::function（内部可能持有 lambda 的捕获变量），这个开销不能忽略。
+DeviceClient::DeviceClient(IDataSource& source, ITelemetrySink& sink)
+    : source_(source), sink_(sink) {}
+// 两个依赖都是引用，不拷贝也不接管所有权 ——
+// 传进来的对象是栈上的局部变量还是堆上的，由调用方决定
 
 bool DeviceClient::Start(std::string& error) {
     if (running_) {
@@ -30,6 +39,12 @@ bool DeviceClient::Start(std::string& error) {
         return false;
     }
     if (!source_.Open(error)) {
+        return false;
+    }
+    // 出口打不开就把数据源关回去，不要留下"开了一半"的状态
+    // 这叫"失败回滚"，是多步初始化必须考虑的事
+    if (!sink_.Open(error)) {
+        source_.Close();
         return false;
     }
     running_ = true;
@@ -41,11 +56,15 @@ void DeviceClient::Stop() {
     if (!running_) {
         return;
     }
+    // 先断出口再关数据源：数据源是"生产方"，停它之前先把下游封好，
+    // 顺序反了的话，最后几帧会被送进一个已经关闭的出口
+    sink_.Close();
     source_.Close();
     running_ = false;
     LOG_INFO("DeviceClient 已停止。统计：收到 "
              << stats_.frames_received << " 帧，成功 " << stats_.frames_ok << " 帧，解析失败 "
-             << stats_.parse_failed << " 帧，数据源错误 " << stats_.source_errors << " 次");
+             << stats_.parse_failed << " 帧，上报失败 " << stats_.publish_failed << " 帧，数据源错误 "
+             << stats_.source_errors << " 次");
 }
 
 bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std::string& error) {
@@ -74,10 +93,10 @@ bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std:
         out.reading.humidity_pct = json::GetNumber(root, "humid", 0.0);
         out.reading.light_lux = static_cast<int>(json::GetNumber(root, "light_lux", 0.0));
 
-        // 数据合理性校验：这一层经常被新手忽略，但它是"技术支持"的核心价值。
+        // 数据合理性校验：这一层经常被新手忽略，但它是"技术支持"的核心价值
         // 温度不可能是 500 度 —— 如果有，说明传感器坏了或报文被截断拼错了，
-        // 这时候应该报警而不是把脏数据上报到云端。
-        if (out.reading.temperature_c < -40.0 || out.reading.temperature_c > 125.0) {
+        // 这时候应该报警而不是把脏数据上报到云端
+        if (out.reading.temperature_c < -40.0 || out.reading.temperature_c > 80.0) {
             error = "温度值超出合理范围：" + std::to_string(out.reading.temperature_c);
             return false;
         }
@@ -88,10 +107,10 @@ bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std:
         return true;
 
     } catch (const json::ParseError& e) {
-        // 关键设计：JSON 解析失败【不】让程序退出，只记录并跳过这一帧。
+        // 关键设计：JSON 解析失败【不】让程序退出，只记录并跳过这一帧
         // 理由：现场环境中偶发的坏帧是常态（干扰、拔插、波特率抖动），
-        //       如果一帧坏数据就让整个服务挂掉，那是不可接受的。
-        //       这个取舍在面试里非常值得讲。
+        //       如果一帧坏数据就让整个服务挂掉，那是不可接受的
+        //       这个取舍在面试里非常值得讲
         error =
             std::string("JSON 解析失败（位置 ") + std::to_string(e.position()) + "）：" + e.what();
         return false;
@@ -123,34 +142,34 @@ ProcessResult DeviceClient::PollOnce() {
     std::string parse_error;
     if (!ParseFrame(read.frame, message, parse_error)) {
         ++stats_.parse_failed;
-        // 把坏帧原样打出来 —— 排查时你最需要看到的就是"它到底长什么样"。
-        // 只打印"解析失败"而不打印内容，是新手最常犯的日志错误。
+        // 把坏帧原样打出来 —— 排查时你最需要看到的就是"它到底长什么样"
+        // 只打印"解析失败"而不打印内容，是新手最常犯的日志错误
         LOG_WARN("丢弃一帧坏数据：" << parse_error << " | 原始内容: " << read.frame);
         return ProcessResult::ParseFailed;
     }
 
     ++stats_.frames_ok;
 
-    // 调用回调把数据交给上层。这里用 if (handler_) 判空 ——
-    // 客户可能只想解析不想上报，允许回调为空。
-    if (handler_) {
-        handler_(message);
+    // --- 贴标签 ---
+    // 这两项是"每条消息各不相同"的属性，数据源产出的报文里【没有】，
+    // 所以只能在这里补上：
+    //   uptime_ms 由发送方算（本进程开机多久），
+    //   sequence  由发送方数（这是发出的第几条）
+    // 为什么不在 ParseFrame 里补？因为 ParseFrame 处理的是【别人发来的】报文，
+    // 它的时间戳应该以报文里写的为准，不能拿本机的时间去覆盖
+    message.uptime_ms = SteadyNowMs() - kStartMs;
+    message.sequence = ++sequence_;
+
+    // --- 交给出口 ---
+    // 上报失败不让程序退出，只记一条警告 ——
+    // 和设备坏帧同一个思路：现场断网是常态，不能因为发不出去就挂掉
+    std::string publish_error;
+    if (!sink_.Publish(message, publish_error)) {
+        ++stats_.publish_failed;
+        LOG_WARN("上报失败（第 " << message.sequence << " 条）：" << publish_error);
+        return ProcessResult::PublishFailed;
     }
     return ProcessResult::Ok;
-}
-
-bool DeviceClient::PublishTelemetry(const SensorReading& reading) {
-    DeviceMessage message;
-    message.device_id = "fish-tank-01";
-    message.timestamp_ms = NowMs();
-    message.reading = reading;
-
-    if (!handler_) {
-        LOG_WARN("未设置上报回调，PublishTelemetry 被忽略");
-        return false;
-    }
-    handler_(message);
-    return true;
 }
 
 } // namespace iotd

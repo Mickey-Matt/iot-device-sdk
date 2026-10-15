@@ -4,11 +4,11 @@
 // 【为什么简历项目一定要有测试？】
 // 因为面试官问"你怎么保证代码是对的"时，
 // 答"我手动跑了几遍"和答"我写了 12 个自动化测试用例，覆盖了边界情况"
-// 是两个完全不同层次的回答。后者说明你有工程意识。
+// 是两个完全不同层次的回答，后者说明你有工程意识
 //
 // 这里不引入 doctest/Catch2，而是手写 20 行断言宏 ——
-// 目的是让你看清"测试框架本质上是什么"：不过是自动比较 + 统计失败数。
-// 等你看懂了这 20 行，再去用 doctest 就是水到渠成。
+// 目的是让你看清"测试框架本质上是什么"：不过是自动比较 + 统计失败数
+// 等你看懂了这 20 行，再去用 doctest 就是水到渠成
 // ===========================================================================
 
 #include <cstdio>
@@ -16,6 +16,10 @@
 
 #include "iotd/device_client.h"
 #include "iotd/json.h"
+
+#if defined(_WIN32)
+#include <windows.h> // SetConsoleOutputCP 需要它
+#endif
 
 namespace {
 
@@ -33,10 +37,10 @@ int g_failed = 0;
         }                                                                                          \
     } while (false)
 
-// 比较两个 double 是否近似相等。
+// 比较两个 double 是否近似相等
 // 【重要】浮点数不能用 == 比较！
-//   因为 0.1 + 0.2 != 0.3 在计算机里是真的。
-//   正确做法是判断两者差值是否小于一个极小值（epsilon）。
+//   因为 0.1 + 0.2 != 0.3 在计算机里是真的
+//   正确做法是判断两者差值是否小于一个极小值（epsilon）
 bool NearlyEqual(double a, double b, double eps = 1e-9) {
     const double diff = (a > b) ? (a - b) : (b - a);
     return diff < eps;
@@ -133,7 +137,7 @@ void TestDeviceClientRejectsBadData() {
 
     // 温度超范围（模拟传感器故障）
     CHECK(
-        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":500.0,"humid":50})", msg, err));
+        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":110.0,"humid":50})", msg, err));
 
     // 湿度超范围
     CHECK(
@@ -163,6 +167,12 @@ void TestDumpRoundTrip() {
 } // namespace
 
 int main() {
+    // 控制台默认代码页是 936（GBK），UTF-8 的中文会被解成乱码
+    // 它改的是整个窗口而不是本进程，所以必须在任何输出之前调用
+#if defined(_WIN32)
+    ::SetConsoleOutputCP(CP_UTF8);
+#endif
+
     std::printf("===== iotd 测试开始 =====\n");
 
     TestJsonBasics();
@@ -174,8 +184,8 @@ int main() {
 
     std::printf("===== 测试结束：通过 %d，失败 %d =====\n", g_passed, g_failed);
 
-    // 返回非 0 表示测试失败。
+    // 返回非 0 表示测试失败
     // 这个约定让 CI（持续集成）能自动判断代码是否合格 ——
-    // 这就是"自动化测试"和"手动点一遍"的本质区别。
+    // 这就是"自动化测试"和"手动点一遍"的本质区别
     return g_failed == 0 ? 0 : 1;
 }
