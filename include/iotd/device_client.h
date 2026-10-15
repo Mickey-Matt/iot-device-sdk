@@ -6,23 +6,31 @@
 // 如果这个项目是一个商品，那么 device_client.h 就是商品的说明书封面
 // 使用者（客户）只需要看这个文件，就知道怎么用你的 SDK
 //
+// 它只干一件事：把数据**从数据源搬到出口**
+//
+//     数据源                 DeviceClient                 出口
+//   IDataSource  ──Poll()──▶  解析 → 校验 → 贴标签  ──Publish()──▶  ITelemetrySink
+//   （从哪来）                                              （往哪去）
+//
+// 它自己【不碰网络】，也不知道出口那边是 MQTT 还是日志文件 ——
+// 这就是"采集"和"传输"分开的意义：换任意一边，这边都不用改
+//
 // 设计原则（面试时照着讲）：
-//   1. 构造时就明确依赖：传进来一个 IDataSource，而不是在内部 new 一个
-//      这叫"依赖注入"，好处是客户可以用你的 SDK 接任何数据源
-//   2. 不拥有数据源的所有权：只借用，不负责 delete
-//      用裸引用 IDataSource& 而不是 shared_ptr，因为所有权不属于我
-//   3. 回调用 std::function：客户可以传普通函数、lambda、成员函数绑定
-//   4. 析构自动清理：RAII
-//   5. 提供统计信息：上线后靠它判断链路是否健康
+//   1. 构造时就明确依赖：传进来一个 IDataSource 和一个 ITelemetrySink，
+//      而不是在内部 new —— 这叫"依赖注入"，好处是两边都可以替换
+//   2. 不拥有这两个对象的所有权：只借用，不负责 delete
+//      用裸引用而不是 shared_ptr，因为所有权不属于我
+//   3. 析构自动清理：RAII
+//   4. 提供统计信息：上线后靠它判断链路是否健康
 // ===========================================================================
 
 #pragma once
 
 #include <cstdint>
-#include <functional>
 #include <string>
 
 #include "iotd/data_source.h"
+#include "iotd/telemetry_sink.h"
 #include "iotd/types.h"
 
 namespace iotd {
@@ -31,22 +39,21 @@ namespace iotd {
 // 因为"失败"分很多种：解析错误可以跳过继续，
 // 而"数据源断开"需要触发重连，用枚举能让调用方区分处理
 enum class ProcessResult {
-    Ok,          // 成功处理一帧
-    NoData,      // 这次没读到数据（正常）
-    ParseFailed, // 读到了数据但 JSON 不合法（可跳过，不致命）
-    SourceError, // 数据源本身出错了（需要上层介入）
+    Ok,            // 成功处理一帧，并且已经交给出口
+    NoData,        // 这次没读到数据（正常）
+    ParseFailed,   // 读到了数据但 JSON 不合法（可跳过，不致命）
+    PublishFailed, // 数据没问题，但出口那边发失败（通常是断网）
+    SourceError,   // 数据源本身出错了（需要上层介入）
 };
 
 class DeviceClient {
 public:
-    // 上报回调：DeviceClient 解析出数据后调用它
-    // 第一阶段打印到屏幕；第二阶段换成发 MQTT；第三阶段可能写数据库
-    // —— 这一行 typedef 就是"未来接入 MQTT 不用改核心逻辑"的原因
-    using TelemetryHandler = std::function<void(const DeviceMessage&)>;
-
-    // 构造：传入数据源和上报回调
-    //   注意 IDataSource& 是引用：明确表达"我不拥有它，也不负责销毁它"
-    DeviceClient(IDataSource& source, TelemetryHandler handler);
+    // 构造：传入数据源和上报出口
+    //   注意两个参数的类型【不一样】，但它们完全可以是同一个对象
+    //   （对应标准库的 std::iostream：一个对象，既能读又能写）
+    //
+    //   用 IDataSource& 而不是 shared_ptr：明确表达"我不拥有它，也不负责销毁它"
+    DeviceClient(IDataSource& source, ITelemetrySink& sink);
 
     // 禁止拷贝，为什么？
     //   拷贝一个 DeviceClient 意味着两个对象共享同一个数据源和统计计数，
@@ -57,19 +64,18 @@ public:
 
     ~DeviceClient() = default;
 
-    // 启动/停止
+    // 启动/停止：两个依赖一起开关，任何一边失败都会回滚
     bool Start(std::string& error);
     void Stop();
 
-    // 驱动一次：读一帧、解析、回调上报
+    // 驱动一次：读一帧 → 解析 → 校验 → 贴标签 → 交给出口
+    //
     // 为什么不让 DeviceClient 自己开线程循环？
     //   因为"谁来驱动循环"是使用者的自由：可以 while 循环、可以用定时器、
     //   也可以放进别人的事件循环里，SDK 不该替客户决定调度方式
     //   —— 这是很值得在面试里讲的一个设计取舍
+    //   （Azure IoT SDK 的 IoTHubDeviceClient_LL_DoWork 是同一个思路）
     ProcessResult PollOnce();
-
-    // 主动上报一条数据（供测试和示例使用）
-    bool PublishTelemetry(const SensorReading& reading);
 
     // --- 统计信息：观察链路健康度 ---
     // 面试时这样讲："上线后客户说设备老掉线，我先看统计：
@@ -79,6 +85,7 @@ public:
         std::uint64_t frames_received = 0; // 收到多少帧
         std::uint64_t frames_ok = 0;       // 解析成功多少帧
         std::uint64_t parse_failed = 0;    // 解析失败多少帧
+        std::uint64_t publish_failed = 0;  // 上报失败多少帧
         std::uint64_t source_errors = 0;   // 数据源错误次数
         std::int64_t last_frame_ms = 0;    // 最后一次收到数据的时间戳
     };
@@ -90,11 +97,11 @@ public:
     static bool ParseFrame(const std::string& frame, DeviceMessage& out, std::string& error);
 
 private:
-    IDataSource& source_;      // 借用，不拥有
-    TelemetryHandler handler_; // 上报回调
+    IDataSource& source_;    // 从哪读（借用，不拥有）
+    ITelemetrySink& sink_;   // 往哪发（借用，不拥有）
     bool running_ = false;
     Stats stats_;
-    std::uint64_t sequence_ = 0;
+    std::uint64_t sequence_ = 0; // 已上报条数，用作报文序号
 };
 
 } // namespace iotd

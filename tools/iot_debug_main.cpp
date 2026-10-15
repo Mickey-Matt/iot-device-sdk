@@ -28,6 +28,7 @@
 #include "iotd/data_source.h"
 #include "iotd/device_client.h"
 #include "iotd/json.h"
+#include "iotd/log_sink.h"
 #include "iotd/logger.h"
 #include "iotd/mock_source.h"
 #include "iotd/serial_port_source.h"
@@ -100,12 +101,10 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
 // 这是"消除重复"的工程习惯 —— 如果两个子命令各写一遍循环，
 // 以后要改退出逻辑就得改两处，早晚会漏一处
 int RunLoop(iotd::IDataSource& source, const std::string& tag) {
-    iotd::DeviceClient client(source, [&tag](const iotd::DeviceMessage& msg) {
-        IOTD_LOG(iotd::Logger::Level::Info, "[" << tag << "] " << msg.device_id
-                                                << " temp=" << msg.reading.temperature_c
-                                                << " humid=" << msg.reading.humidity_pct
-                                                << " light=" << msg.reading.light_lux);
-    });
+    // 出口用 LogSink：调试工具只关心"数据长什么样"，不需要真的上云
+    // tag 会作为日志前缀，这样 mock 和 serial 两路输出能分得清
+    iotd::LogSink sink(tag);
+    iotd::DeviceClient client(source, sink);
 
     std::string error;
     if (!client.Start(error)) {

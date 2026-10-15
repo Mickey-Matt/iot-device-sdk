@@ -3,20 +3,28 @@
 //
 // 【这是整个项目最重要的一课】
 //
-// 问题：数据可能来自真实串口、来自模拟器、也可能来自 MQTT
+// 问题：数据可能来自真实串口，也可能来自模拟器
 //       如果 DeviceClient 里写死"读串口"，那没有硬件时程序完全没法测
 //
 // 解决：把"从哪读数据"抽象成一个接口，DeviceClient 只认接口，不认实现
 //
 //           IDataSource  (接口 / 抽象基类)
 //                 ▲
-//        ┌────────┼────────┬──────────────┐
-//   MockSource  ConsoleSource  SerialPortSource   (将来还有 MqttSource)
+//        ┌────────┴────────┐
+//   MockSource      SerialPortSource
+//
+// 【注意这里没有 MqttSource】
+//   MQTT 是数据的【去向】，不是来源 —— 云平台不会凭空产生传感器读数
+//   它的抽象在另一个头文件：iotd/telemetry_sink.h
+//   一条流水线的两头各有一个接口，这才是完整的形状：
+//
+//     IDataSource ──▶ DeviceClient ──▶ ITelemetrySink
+//      （从哪来）       解析/校验/贴标签       （往哪去）
 //
 // 这个技巧叫"面向接口编程"或"依赖倒置"
 // 好处有三个，你在面试里可以这样讲：
 //   1. 可测试：没有硬件也能用 Mock 跑通全流程
-//   2. 可替换：接 MQTT 时不用改 DeviceClient 一行代码
+//   2. 可替换：换串口/换上报方式，DeviceClient 一行代码不用改
 //   3. 可并行：一个人写串口实现，另一个人写 MQTT 实现，互不阻塞
 //
 // 关键词：virtual（虚函数）、= 0（纯虚函数）、override（覆盖）

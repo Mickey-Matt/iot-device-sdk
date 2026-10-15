@@ -94,12 +94,13 @@ add_library(iotd_core STATIC
     src/logger.cpp
     src/mock_source.cpp
     src/serial_port_source.cpp
-    src/mqtt_source.cpp
+    src/mqtt_sink.cpp
     src/device_client.cpp
+    src/log_sink.cpp
 )
 
 # PUBLIC 表示：谁链接 iotd_core，谁就自动获得这个 include 目录和 mosquitto
-# 为什么 mosquitto 也是 PUBLIC？因为 mqtt_source.h 里 #include <mosquitto.h>，
+# 为什么 mosquitto 也是 PUBLIC？因为 mqtt_sink.h 里 #include <mosquitto.h>，
 # 使用者包含这个头文件时也要能找到它 —— 它属于"接口的一部分"
 target_include_directories(iotd_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(iotd_core PUBLIC ${MOSQUITTO_TARGET})

@@ -25,6 +25,7 @@
 
 #include "iotd/data_source.h"
 #include "iotd/device_client.h"
+#include "iotd/log_sink.h"
 #include "iotd/logger.h"
 #include "iotd/mock_source.h"
 #include "iotd/serial_port_source.h"
@@ -51,15 +52,13 @@ void OnSignal(int) {
     // 只设置一个标志位，是最稳妥的做法
 }
 
-// 上报回调：真正"把数据用起来"的地方
-// 第一阶段：打印 + 落 CSV 文件；第二阶段这里会变成发 MQTT
-void OnTelemetry(const iotd::DeviceMessage& msg) {
-    IOTD_LOG(iotd::Logger::Level::Info,
-             "上报 device=" << msg.device_id << " temp=" << msg.reading.temperature_c << "C"
-                            << " humid=" << msg.reading.humidity_pct << "%"
-                            << " light=" << msg.reading.light_lux << "lux"
-                            << " ts=" << msg.timestamp_ms);
-}
+// 这里原本有个 OnTelemetry 回调函数，现在不需要了 ——
+// 上报动作由 DeviceClient 直接调出口的 Publish()，
+// 出口传的是下面的 LogSink（换 iotd::MqttSink 就变成真上云）
+//
+// 为什么从"回调函数"改成"接口实现"？
+//   回调只能换一个函数体，接口可以换一整个实现类，
+//   而且实现类能带自己的状态（LogSink 就带了个 tag 前缀）
 
 } // namespace
 
@@ -95,7 +94,7 @@ int main(int argc, char** argv) {
     LOG_INFO("=== device_sim 启动 (间隔" << interval_ms << "ms) ===");
     // iotd::Logger::Instance().SetLevel(iotd::Logger::Level::Debug);
 
-    // --- 选择数据源 ---
+    // --- 选择一个数据源 ---
     // 这里体现了 IDataSource 接口的价值：
     // 下面的 DeviceClient 完全不知道数据是从模拟器还是串口来的
     iotd::IDataSource* source = nullptr;
@@ -110,10 +109,16 @@ int main(int argc, char** argv) {
         LOG_INFO("使用串口数据源：" << port_name);
     }
 
-    iotd::DeviceClient client(*source, OnTelemetry);
+    // --- 选择一个上报出口 ---
+    // 这里体现了 ITelemetrySink 接口的价值：
+    // DeviceClient 也完全不知道数据是打进日志还是发到云端
+    // 想真上云，把这一行换成 iotd::MqttSink sink(config); 就行
+    iotd::LogSink sink;
+
+    iotd::DeviceClient client(*source, sink);
     // 注意这里传的是 *source（解引用成引用）
-    // DeviceClient 只是"借用"这个对象，不负责销毁它 ——
-    // mock_source / serial_source 是栈上的局部变量，它们会自己析构
+    // DeviceClient 只是"借用"这两个对象，不负责销毁它们 ——
+    // mock_source / serial_source / sink 都是栈上的局部变量，它们会自己析构
 
     std::string error;
     if (!client.Start(error)) {

@@ -1,5 +1,5 @@
 // ===========================================================================
-// src/mqtt_source.cpp  —— libmosquitto 的接入实现
+// src/mqtt_sink.cpp  —— libmosquitto 的接入实现
 //
 // 阅读顺序建议：
 //   1. 看 Open()   —— 连接是怎么建立的、回调是怎么挂上的
@@ -8,7 +8,7 @@
 //   4. 最后看 PublishTelemetry —— 上行发布
 // ===========================================================================
 
-#include "iotd/mqtt_source.h"
+#include "iotd/mqtt_sink.h"
 
 #include <chrono>
 #include <cstdio>
@@ -25,7 +25,7 @@ namespace {
 // mosquitto_lib_init() 是全库一次性初始化，规则：
 //   - 进程里只能 init 一次，退出时 cleanup 一次
 //   - 官方文档明确警告它【不是线程安全】的
-// 所以用 std::call_once 保证：无论多少个 MqttSource 对象、多少线程，
+// 所以用 std::call_once 保证：无论多少个 MqttSink 对象、多少线程，
 // 初始化代码只执行一次，这是 C++11 提供的标准做法
 //
 // 注意：我们用单线程 loop 方案，其实天然不会并发调用；
@@ -60,36 +60,32 @@ std::string MakeClientId(const std::string& prefix) {
 // 构造与析构
 // ===========================================================================
 
-MqttSource::MqttSource(Config config) : config_(std::move(config)) {
+MqttSink::MqttSink(Config config) : config_(std::move(config)) {
     if (config_.client_id.empty()) {
         config_.client_id = MakeClientId("iotd");
     }
 }
 
-MqttSource::~MqttSource() {
+MqttSink::~MqttSink() {
     // 析构里关闭连接 —— RAII 思想：对象生命周期结束，资源自动释放
     // 即使调用方忘了调 Close()，也不会泄漏连接和 socket
     Close();
 }
 
-std::string MqttSource::Name() const {
-    return "MqttSource(" + config_.broker_host + ":" + std::to_string(config_.broker_port) + ")";
-}
-
-std::string MqttSource::UpTopic() const {
+std::string MqttSink::UpTopic() const {
     return BuildUpTopic(config_.device_id);
 }
 
-std::string MqttSource::CommandTopic() const {
+std::string MqttSink::CommandTopic() const {
     return BuildCmdTopic(config_.device_id);
 }
 
 // ===========================================================================
 // Open：建立连接 + 挂载回调
 // ===========================================================================
-bool MqttSource::Open(std::string& error) {
+bool MqttSink::Open(std::string& error) {
     if (mosq_ != nullptr) {
-        error = "MqttSource 已经打开过了";
+        error = "MqttSink 已经打开过了";
         return false;
     }
 
@@ -118,10 +114,10 @@ bool MqttSource::Open(std::string& error) {
     }
 
     // --- 第 2 步：挂回调 ---
-    // 注意传的是 this —— 回调里再把它转回 MqttSource*
-    ::mosquitto_connect_callback_set(mosq_, &MqttSource::OnConnectStatic);
-    ::mosquitto_disconnect_callback_set(mosq_, &MqttSource::OnDisconnectStatic);
-    ::mosquitto_message_callback_set(mosq_, &MqttSource::OnMessageStatic);
+    // 注意传的是 this —— 回调里再把它转回 MqttSink*
+    ::mosquitto_connect_callback_set(mosq_, &MqttSink::OnConnectStatic);
+    ::mosquitto_disconnect_callback_set(mosq_, &MqttSink::OnDisconnectStatic);
+    ::mosquitto_message_callback_set(mosq_, &MqttSink::OnMessageStatic);
 
     // --- 第 3 步：鉴权（可选）---
     if (!config_.username.empty()) {
@@ -198,7 +194,7 @@ bool MqttSource::Open(std::string& error) {
 // ===========================================================================
 // Close：断开并释放
 // ===========================================================================
-void MqttSource::Close() {
+void MqttSink::Close() {
     if (mosq_ == nullptr) {
         return;
     }
@@ -236,49 +232,17 @@ void MqttSource::Close() {
         std::lock_guard<std::mutex> lock(mutex_);
         snapshot = stats_;
     }
-    LOG_INFO("MQTT 已断开：" << Name() << "（统计：连接成功 " << snapshot.connect_success
+    LOG_INFO("MQTT 已断开：" << config_.broker_host << ":" << config_.broker_port
+                             << "（统计：连接成功 " << snapshot.connect_success
                              << " 次，收到 " << snapshot.messages_received << " 条，发布成功 "
                              << snapshot.publish_ok << " 条，发布失败 " << snapshot.publish_failed
                              << " 条）");
 }
 
 // ===========================================================================
-// Poll：驱动网络 + 投递一帧
-// ===========================================================================
-ReadResult MqttSource::Poll() {
-    ReadResult result;
-
-    if (mosq_ == nullptr) {
-        result.error = "MqttSource 尚未打开";
-        return result;
-    }
-
-    // -----------------------------------------------------------------------
-    // 驱动网络？不需要了 —— 这件事已经交给后台线程
-    //
-    // mosquitto_loop_start() 创建的线程在持续做三件事：
-    //   1. 收发网络报文（包括 QoS 1 的 PUBACK 确认）
-    //   2. 维持 keepalive 心跳
-    //   3. 【自动重连】—— 这是它的核心价值，手动 loop() 没有这个能力
-    //
-    // 所以 Poll() 现在只剩一件事：把队列里的数据取出来
-    // 【教训】换了线程模型之后，原来那段 mosquitto_loop() 调用必须删掉，
-    // 否则会和后台线程争抢同一个 socket，属于未定义行为
-    // -----------------------------------------------------------------------
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!pending_frames_.empty()) {
-        result.has_data = true;
-        result.frame = std::move(pending_frames_.front());
-        pending_frames_.erase(pending_frames_.begin());
-    }
-
-    return result;
-}
-
-// ===========================================================================
 // 上行发布
 // ===========================================================================
-bool MqttSource::PublishTelemetry(const DeviceMessage& message, std::string& error) {
+bool MqttSink::Publish(const DeviceMessage& message, std::string& error) {
     // 手工拼一条 JSON 报文
     // 这里刻意不用 json::Dump —— 因为要演示"设备侧怎么产生报文"，
     // 而且真实嵌入式设备也是这么一位一位拼出来的（省内存）
@@ -295,12 +259,25 @@ bool MqttSource::PublishTelemetry(const DeviceMessage& message, std::string& err
                   static_cast<long long>(message.uptime_ms), message.sequence,
                   message.reading.temperature_c, message.reading.humidity_pct,
                   message.reading.light_lux);
-    return Publish(UpTopic(), buf, error);
+
+    if (!PublishRaw(UpTopic(), buf, error)) {
+        return false;
+    }
+
+    // 成功时才打这一条：它和报文里的字段是【同一份数据】，
+    // 所以日志和抓包结果能逐字对上 —— 排查时这一点非常值钱
+    // （反过来说，日志打印的如果和实际发出去的不是同一个对象，就会掩盖 bug，
+    //   见 docs/踩坑记录.md 第 14 条）
+    LOG_INFO("↑ 上报成功 #" << message.sequence << " temp=" << message.reading.temperature_c
+                            << "C humid=" << message.reading.humidity_pct << "% 开机"
+                            << message.uptime_ms << "ms");
+    return true;
 }
 
-bool MqttSource::Publish(const std::string& topic, const std::string& payload, std::string& error) {
+bool MqttSink::PublishRaw(const std::string& topic, const std::string& payload,
+                            std::string& error) {
     if (mosq_ == nullptr) {
-        error = "MqttSource 尚未打开";
+        error = "MqttSink 尚未打开";
         ++stats_.publish_failed;
         return false;
     }
@@ -350,15 +327,15 @@ bool MqttSource::Publish(const std::string& topic, const std::string& payload, s
 
 // 静态转发的意义：C 库只认普通函数指针，不认 C++ 成员函数指针
 // 所以每个回调都写成"静态壳子 + 转调成员函数"
-void MqttSource::OnConnectStatic(struct mosquitto* /*mosq*/, void* obj, int rc) {
-    static_cast<MqttSource*>(obj)->HandleConnect(rc);
+void MqttSink::OnConnectStatic(struct mosquitto* /*mosq*/, void* obj, int rc) {
+    static_cast<MqttSink*>(obj)->HandleConnect(rc);
 }
 
-void MqttSource::OnDisconnectStatic(struct mosquitto* /*mosq*/, void* obj, int rc) {
-    static_cast<MqttSource*>(obj)->HandleDisconnect(rc);
+void MqttSink::OnDisconnectStatic(struct mosquitto* /*mosq*/, void* obj, int rc) {
+    static_cast<MqttSink*>(obj)->HandleDisconnect(rc);
 }
 
-void MqttSource::OnMessageStatic(struct mosquitto* /*mosq*/, void* obj,
+void MqttSink::OnMessageStatic(struct mosquitto* /*mosq*/, void* obj,
                                  const struct mosquitto_message* msg) {
     if (msg == nullptr || msg->topic == nullptr) {
         return;
@@ -371,13 +348,13 @@ void MqttSource::OnMessageStatic(struct mosquitto* /*mosq*/, void* obj,
     const std::string topic(msg->topic);
     const std::string payload(static_cast<const char*>(msg->payload),
                               static_cast<std::size_t>(msg->payloadlen));
-    static_cast<MqttSource*>(obj)->HandleMessage(topic, payload);
+    static_cast<MqttSink*>(obj)->HandleMessage(topic, payload);
 }
 
 // ---------------------------------------------------------------------------
 // 连接结果回调
 // ---------------------------------------------------------------------------
-void MqttSource::HandleConnect(int rc) {
+void MqttSink::HandleConnect(int rc) {
     if (rc != 0) {
         // rc 是 broker 返回的 CONNACK 结果码，含义要和网络错误区分开：
         //   1 = 协议版本不被支持
@@ -436,7 +413,7 @@ void MqttSource::HandleConnect(int rc) {
     }
 }
 
-void MqttSource::HandleDisconnect(int rc) {
+void MqttSink::HandleDisconnect(int rc) {
     connected_ = false;
     if (rc == 0) {
         LOG_INFO("与 broker 的连接已正常关闭");
@@ -451,49 +428,29 @@ void MqttSource::HandleDisconnect(int rc) {
 // ---------------------------------------------------------------------------
 // 收到下行消息：投递到队列，等 Poll() 取走
 // ---------------------------------------------------------------------------
-void MqttSource::HandleMessage(const std::string& topic, const std::string& payload) {
+void MqttSink::HandleMessage(const std::string& topic, const std::string& payload) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         ++stats_.messages_received;
     }
     LOG_INFO("收到下行消息 topic=" << topic << " payload=" << payload);
 
-    // 先交给虚函数，让子类可以【立即】响应命令
-    // 顺序很重要：命令处理应该先于入队，因为命令是"事件"，要求尽快执行
+    // 交给虚函数，让子类【立即】响应命令
     //
     // 【注意】这里调用 OnCommand 时【不能】持有 mutex_！
-    // 因为子类的 OnCommand 里可能会调 Publish()，
-    // 而 Publish() 也要拿同一把锁 → 就会自己等自己，形成死锁
+    // 因为子类的 OnCommand 里可能会调 PublishRaw()，
+    // 而 PublishRaw() 也要拿同一把锁 → 就会自己等自己，形成死锁
     // 这是多线程编程里最经典的一类错误，务必记住：
     //   "不要在持锁期间调用外部代码（回调、虚函数）"
+    //
+    // 命令到此为止，不再往下走 —— 第一版这里还有个"把命令也塞进数据队列"
+    // 的分支（queue_downlink），后来删掉了：命令是"事件"，不是"数据流"，
+    // 把它当数据帧交给 DeviceClient 解析，只会得到
+    // "报文缺少 device_id 字段"这种毫无意义的失败
     OnCommand(topic, payload);
-
-    if (!config_.queue_downlink) {
-        // 默认路径：命令到此为止，不进遥测队列
-        //
-        // 【为什么这是对的？】
-        // 下行命令的语义是"立刻做一件事"，不是"产生一条数据"
-        // 如果把它也塞进 IDataSource 的队列，DeviceClient 会拿它当设备遥测去解析，
-        // 结果是"报文缺少 device_id 字段"这类毫无意义的解析失败 —— 我们已经踩到了
-        // 分清"事件"和"数据流"，是 MQTT 客户端设计里的关键判断
-        return;
-    }
-
-    // 可选路径：确实需要把下行内容也当作一路数据源时（如推送配置块）
-    std::lock_guard<std::mutex> lock(mutex_);
-    pending_frames_.push_back(payload);
-
-    // 队列保护：如果上层很久不调用 Poll()，队列会一直涨
-    // 设个上限，超过就丢最旧的 —— 宁可丢数据，也不能把内存吃光
-    // 这类"兜底"代码是生产级实现和新手 demo 的分水岭
-    constexpr std::size_t kMaxPending = 256;
-    while (pending_frames_.size() > kMaxPending) {
-        pending_frames_.erase(pending_frames_.begin());
-        LOG_WARN("待处理队列超过 " << kMaxPending << " 条，已丢弃最旧的一条");
-    }
 }
 
-void MqttSource::OnCommand(const std::string& topic, const std::string& payload) {
+void MqttSink::OnCommand(const std::string& topic, const std::string& payload) {
     // 默认实现：只打日志
     // 真实业务里这里会是"解析命令 → 操作硬件 → 回执"
     // 打开这个日志是为了让你能直观看到"下行链路是通的"

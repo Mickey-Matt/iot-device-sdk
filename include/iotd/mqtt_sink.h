@@ -1,19 +1,25 @@
 // ===========================================================================
-// iotd/mqtt_source.h
+// iotd/mqtt_sink.h
 //
 // 【第二期核心文件】把 MQTT 接入进来
 //
-// 注意这个文件里【没有】动 device_client.h 一行 —— 这正是第一期做
-// "数据源抽象"的回报，MqttSource 只是 IDataSource 的第三个实现：
+// 它是一个"出口"，不是"数据源"：
 //
-//                     IDataSource
-//            ┌──────────────┼──────────────┐
-//      MockSource   SerialPortSource   MqttSource   ← 第二期新增，仅此而已
+//      数据源                      DeviceClient                     出口
+//   IDataSource  ──── Poll() ────▶ 解析/校验/贴标签 ──── Publish() ────▶  MqttSink
+//   MockSource                                                          （本文件）
+//   SerialPortSource
 //
-// 数据流：
-//   云端下发命令 ──订阅 dev/{id}/cmd──▶ 回调 → 队列 → Poll() → DeviceClient
-//                                      （mosquitto 网络线程/回调）
-//   设备数据上报 ◀──发布 dev/{id}/up─── PublishTelemetry()
+// 【为什么它不实现 IDataSource？】
+//   数据源 = "会产生传感器读数的地方"，模拟器和串口是，MQTT 云平台不是。
+//   第一版让它也当一路数据源（用一个 queue_downlink 开关把下行命令塞进队列），
+//   结果是：默认配置下这个"数据源"永远产不出数据，挂着牌子不干活。
+//   现在把它摘干净了 —— 它只做两件真正相关的事：
+//
+//     ① 发遥测      DeviceClient 调 Publish()      → PUBLISH dev/{id}/up
+//     ② 收命令      broker 推过来 → OnCommand 虚函数 → 你的代码
+//
+//   这两件事共用同一条 socket，所以留在一个类里（理由见下）
 //
 // 【为什么必须用 mosquitto_loop_start（后台线程）而不是 mosquitto_loop（单线程）？】
 //
@@ -36,11 +42,11 @@
 //
 // 所以正确做法是：
 //   mosquitto_loop_start()  → 库自己起一个后台线程跑网络循环 + 自动重连
-//   我们的主线程           → 只管从队列取数据、发布数据
+//   我们的主线程           → 只管读传感器、算数据、调 Publish()
 //
 // 代价：回调（收消息、连接状态变化）现在发生在【后台线程】，
-//       而 Poll()/Publish() 在【主线程】调用 —— 两者会同时访问
-//       队列、连接标志、统计计数，所以【必须加锁】
+//       而 Publish() 在【主线程】调用 —— 两者会同时访问
+//       连接标志和统计计数，所以【必须加锁】
 //       这个代价是必须付的，不能为了"避免多线程"而牺牲自动重连
 // ===========================================================================
 
@@ -51,13 +57,12 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
-#include <vector>
 
 // 需要 mosquitto.h 才能声明 struct mosquitto * 成员
 // 由 CMake 负责把 MSYS2 的 include 目录加进来（见 CMakeLists.txt）
 #include <mosquitto.h>
 
-#include "iotd/data_source.h"
+#include "iotd/telemetry_sink.h"
 #include "iotd/types.h"
 
 namespace iotd {
@@ -81,10 +86,10 @@ namespace iotd {
 //
 // 放命名空间层级还有个实际好处：可以单独前向声明
 //   struct MqttConfig;   ← 只用引用时不必 include 这个头文件
-// 嵌套类做不到，写成 "class MqttSource::Config;" 只有警告、不声明任何东西
+// 嵌套类做不到，写成 "class MqttSink::Config;" 只有警告、不声明任何东西
 //
 // 顺带绕开了一个 GCC 的已知 bug：如果 Config 是"带默认成员初始化的嵌套类"，
-// 又出现在外层类的默认实参里（MqttSource(Config = Config{})），GCC 16 会报
+// 又出现在外层类的默认实参里（MqttSink(Config = Config{})），GCC 16 会报
 //   "default member initializer for 'broker_host' required before the end of
 //    its enclosing class"
 // 详见 docs/踩坑记录.md 第 13 条
@@ -121,23 +126,37 @@ struct MqttConfig {
     // 教训：凡是"间隔/时长"参数，先确认单位再填数
     int reconnect_delay_sec = 1;
     int reconnect_delay_max_sec = 30;
-
-    // --- 下行消息要不要也当作"数据帧"交给 DeviceClient？---
-    //
-    // false（默认，推荐）：命令只触发 OnCommand 回调，立即处理
-    //   ✓ 语义正确：命令是"事件"，不是"数据流"
-    //   ✓ 不会被 DeviceClient 当成遥测帧去解析，避免无意义的解析失败
-    //   ✓ 这就是"命令式消息"和"数据式消息"的区别，是 MQTT 设计里的核心概念
-    //
-    // true：命令也会进待投递队列
-    //   仅在你确实需要"把云端下发的内容也当作一路数据源"时才打开
-    //   （比如云端推送的是配置块，你要存下来而不是立刻执行）
-    bool queue_downlink = false;
 };
 
-class MqttSource : public IDataSource {
+// ---------------------------------------------------------------------------
+// MqttSink：数据的【出口】，不是入口
+//
+// 一、为什么它不实现 IDataSource
+//   数据源 = "会产生传感器读数的地方"：模拟器会、串口会、云平台不会
+//   第一版让它也当一路数据源，靠一个 queue_downlink 开关把下行命令塞进队列
+//   结果是：默认配置下那个"数据源"永远产不出东西，挂着牌子不干活
+//   现在摘干净了，它只做两件真正相关的事：
+//     ① 发遥测  —— DeviceClient 调 Publish()
+//     ② 收命令  —— broker 推过来，走 OnCommand 虚函数
+//
+// 二、为什么这两件事留在一个类里
+//   因为它们共用同一条 socket：
+//   MQTT 是一条 TCP 连接上的双向协议，CONNECT 建立会话之后，
+//   PUBLISH 和 SUBSCRIBE 都跑在这条会话上，keepalive 和自动重连也只有一份
+//   拆成两个对象就得共享同一条 socket，谁负责重连、谁负责析构反而更乱
+//   工业界也都是这么做的：libmosquitto 的 mosquitto_connect / _publish /
+//   _subscribe 收的是同一个 struct mosquitto *，
+//   Paho C++ 的 mqtt::async_client 一个类里既有 publish 也有 subscribe
+//
+// 三、那"一个类干两件事"不违反单一职责吗
+//   不违反 —— 单一职责说的是"一个接口只表达一件事"。
+//   这里对外只有一个接口 ITelemetrySink（只管"发"），
+//   "收命令"是它自己的虚函数，和接口无关，属于另一条链路
+//   对照标准库：std::iostream 也是"一个类 + 两个正交接口（读/写）"
+// ---------------------------------------------------------------------------
+class MqttSink : public ITelemetrySink {
 public:
-    using Config = MqttConfig; // 保留 MqttSource::Config 这种写法
+    using Config = MqttConfig; // 保留 MqttSink::Config 这种写法
 
     // -----------------------------------------------------------------------
     // 运行统计：排查现场问题的第一手依据
@@ -150,33 +169,32 @@ public:
         std::uint64_t publish_failed = 0;    // 发布失败次数
     };
 
-    explicit MqttSource(Config config = Config{});
-    ~MqttSource() override;
+    explicit MqttSink(Config config = Config{});
+    ~MqttSink() override;
 
-    // --- 实现 IDataSource 接口 ---
+    // --- 实现 ITelemetrySink 接口 ---
+    // Open 里做两件事：连 broker + 订阅命令主题
     bool Open(std::string& error) override;
     void Close() override;
-    ReadResult Poll() override;
-    std::string Name() const override;
 
-    // --- MQTT 特有：上行发布 ---
     // 把一条遥测消息发布到 dev/{device_id}/up
     // 返回 false 时 error 里会写明原因（未连接 / 报文过大 / 队列满）
     //
-    // 【为什么参数是 DeviceMessage，而不是 SensorReading？】
-    // DeviceMessage 里本来就含着一个 SensorReading，只收 SensorReading
-    // 等于主动丢掉 device_id / timestamp_ms / uptime_ms / sequence 四项元数据
-    // 这里原本还留了一个"只收读数"的重载，调用方顺手用了它，结果
-    // DeviceClient 贴好的序号和开机时长一次都没进过报文（踩坑记录第 14 条）
-    // 所以只保留一个入口：上游给什么就原样发什么，元数据不可能在中途丢
+    // 参数为什么是 DeviceMessage 而不是 SensorReading？
+    //   DeviceMessage 里本来就含着一个 SensorReading，只收读数等于主动丢掉
+    //   device_id / timestamp_ms / uptime_ms / sequence 四项元数据 ——
+    //   这个坑真实发生过，见 docs/踩坑记录.md 第 14 条
     //
-    // 唯一的例外是 device_id：它同时决定发布主题，主题和载荷必须说同一台
-    // 设备，所以取自 config_；剩下三项都是"每条消息各不相同"的属性，
-    // 只能由 DeviceMessage 提供 —— 这条界线就是两个类的分工边界
-    bool PublishTelemetry(const DeviceMessage& message, std::string& error);
+    // 字段来源的分工：device_id 取自 config_（它同时决定发布主题），
+    //   剩下三项都是"每条消息各不相同"的属性，只能由 DeviceMessage 提供
+    bool Publish(const DeviceMessage& message, std::string& error) override;
 
-    // 发布任意字符串到指定主题（调试用，比如手工注入一条命令）
-    bool Publish(const std::string& topic, const std::string& payload, std::string& error);
+    // 传输层的原始发布：把任意字符串发到任意主题
+    // 【为什么叫 Raw】它跳过"消息 → JSON"这一层封装，直接发字节
+    // 用途：调试（手工注入一条命令）、发回执（cmd_ack）
+    // 名字带 Raw 是为了和上面那个业务级的 Publish 区分开 ——
+    // 两个都叫 Publish 的话，读代码时分不清调用方要的是哪一层
+    bool PublishRaw(const std::string& topic, const std::string& payload, std::string& error);
 
     // 供 device_sim / iot-debug 查询连接状态
     // 【注意】这个标志会被后台线程改写，所以用 std::atomic 而不是 bool
@@ -192,10 +210,14 @@ public:
     // -----------------------------------------------------------------------
     // 下行命令回调
     //
-    // 为什么在这里用 virtual 而不是 std::function？
-    //   DeviceClient 用 std::function（因为它是"一个数据出口"，很轻）
-    //   MqttSource 这里用 virtual（因为需要继承扩展的场景更重，且
-    //   虚函数在 SDK 里更常见、更容易被 C++ 使用者理解）
+    // 命令为什么走虚函数，而不是走 DeviceClient 的解析链路？
+    //   因为命令是"事件"（立刻做一件事），遥测是"数据流"（攒起来往上发），
+    //   两者的语义完全不同。把命令塞进数据流里，只会得到
+    //   "报文缺少 device_id 字段"这种毫无意义的解析失败 —— 我们真踩过
+    //
+    // 为什么这里用 virtual 而不是 std::function？
+    //   命令处理通常需要一整个对象的状态（比如操作 GPIO、查配置），
+    //   继承比塞一个 lambda 更自然，而且虚函数在 SDK 里更常见、更易理解
     //   两种都是合法设计，能说清"为什么这里选这个"才是重点
     //
     // 默认实现只打日志，要处理命令就继承并 override
@@ -211,7 +233,7 @@ private:
     // 回调必须是静态函数或自由函数（C 库不认 C++ 成员函数指针），
     // 所以用 static + void* 把 this 传进来 —— 这是 C 回调的经典写法
     // C 库在触发回调时，会把 void* obj（通常是 this 指针）原封不动地传回来，
-    // 这样就能在静态回调函数里通过 static_cast<MqttSource*>(obj) 重新拿到对象的 this 指针
+    // 这样就能在静态回调函数里通过 static_cast<MqttSink*>(obj) 重新拿到对象的 this 指针
     static void OnConnectStatic(struct mosquitto* mosq, void* obj, int rc);
     static void OnDisconnectStatic(struct mosquitto* mosq, void* obj, int rc);
     static void OnMessageStatic(struct mosquitto* mosq, void* obj,
@@ -228,8 +250,8 @@ private:
     // -----------------------------------------------------------------------
     // 多线程保护
     //
-    // 用 mosquitto_loop_start() 后，收发消息和连接状态变化的回调都跑在
-    // 库自己的后台线程里，而 Poll()/Publish() 在主线程 —— 两边会同时碰
+    // 用 mosquitto_loop_start() 后，收消息和连接状态变化的回调都跑在
+    // 库自己的后台线程里，而 Publish() 在主线程 —— 两边会同时碰
     // 下面这些数据，所以必须保护
     //
     // 为什么 connected_ 用 atomic 而 stats_ 用 mutex？
@@ -238,14 +260,8 @@ private:
     //   必须用锁，这是"按数据特点选同步手段"的判断，不是随便选的
     // -----------------------------------------------------------------------
     std::atomic<bool> connected_{false};
-    mutable std::mutex mutex_; // 保护 stats_ 与 pending_frames_
+    mutable std::mutex mutex_; // 保护 stats_
     Stats stats_;
-
-    // 待投递队列：后台线程收到消息后放这里，主线程 Poll() 取走
-    // 【推模型转拉模型】MQTT 是回调驱动（消息来了就推给你），
-    // 而 IDataSource 的契约是"我说要你才给我"（拉模型）
-    // 队列就是这个转换器
-    std::vector<std::string> pending_frames_;
 
     // 供 Open() 等待首次连接结果用：
     // 后台线程连上（或失败）后唤醒主线程，避免主线程死等
