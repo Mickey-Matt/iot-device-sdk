@@ -115,8 +115,7 @@ iot-device-sdk/
 ├─ samples/                    示例报文（含正常与损坏两种）
 └─ docs/
     ├─ 实测记录.md              跑出来的真实日志和抓包结果
-    ├─ 踩坑记录.md              踩过的坑 + 排查过程 + 取舍理由
-    └─ 问题清单.md              已发现、还没改的问题
+    └─ 踩坑记录.md              踩过的坑 + 排查过程 + 取舍理由
 ```
 
 **为什么头文件和实现分开？**
@@ -188,8 +187,6 @@ while (!g_should_exit) {
 - [x] **M2.5** 上报出口抽象（`ITelemetrySink`）：把 MQTT 从"数据源"改回"出口"，入站出站对称
 - [ ] **M3** 补齐 5 个示例程序（publish / subscribe / reconnect / serial_bridge / multi_device）
 - [ ] **M4** 文档：设计说明（DESIGN.md）、FAQ、排障案例集（含 Wireshark 抓包与日志证据）
-
-> 已发现但还没改的问题（含具体改法）记在 `docs/问题清单.md`
 
 ### M2 实测状态（2026-10-01）
 
