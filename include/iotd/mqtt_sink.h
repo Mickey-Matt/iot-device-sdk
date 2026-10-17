@@ -16,8 +16,8 @@
 //   结果是：默认配置下这个"数据源"永远产不出数据，挂着牌子不干活。
 //   现在把它摘干净了 —— 它只做两件真正相关的事：
 //
-//     ① 发遥测      DeviceClient 调 Publish()      → PUBLISH dev/{id}/up
-//     ② 收命令      broker 推过来 → OnCommand 虚函数 → 你的代码
+//     1) 发遥测      DeviceClient 调 Publish()      → PUBLISH dev/{id}/up
+//     2) 收命令      broker 推过来 → OnCommand 虚函数 → 你的代码
 //
 //   这两件事共用同一条 socket，所以留在一个类里（理由见下）
 //
@@ -136,8 +136,8 @@ struct MqttConfig {
 //   第一版让它也当一路数据源，靠一个 queue_downlink 开关把下行命令塞进队列
 //   结果是：默认配置下那个"数据源"永远产不出东西，挂着牌子不干活
 //   现在摘干净了，它只做两件真正相关的事：
-//     ① 发遥测  —— DeviceClient 调 Publish()
-//     ② 收命令  —— broker 推过来，走 OnCommand 虚函数
+//     1) 发遥测  —— DeviceClient 调 Publish()
+//     2) 收命令  —— broker 推过来，走 OnCommand 虚函数
 //
 // 二、为什么这两件事留在一个类里
 //   因为它们共用同一条 socket：

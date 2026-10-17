@@ -173,11 +173,11 @@ int main(int argc, char** argv) {
 
     // --- 主循环：整条上行链路就靠这一行驱动 ---
     // client.PollOnce() 内部依次做五件事：
-    //   ① source_.Poll()   去 MockSource 要一帧（3 秒才产一帧，其余时候返回"没数据"）
-    //   ② ParseFrame()     把 JSON 文本解成 DeviceMessage
-    //   ③ 范围校验          温度 -40~80、湿度 0~100，超了就丢弃并打警告
-    //   ④ 贴标签            补上 uptime_ms 和 sequence
-    //   ⑤ sink_.Publish()  交给出口，由 MqttSink 拼 JSON 发到 broker
+    //   1) source_.Poll()   去 MockSource 要一帧（3 秒才产一帧，其余时候返回"没数据"）
+    //   2) ParseFrame()     把 JSON 文本解成 DeviceMessage
+    //   3) 范围校验          温度 -40~80、湿度 0~100，超了就丢弃并打警告
+    //   4) 贴标签            补上 uptime_ms 和 sequence
+    //   5) sink_.Publish()  交给出口，由 MqttSink 拼 JSON 发到 broker
     //
     // 【注意】网络收发【不在】这个循环里
     // 用 mosquitto_loop_start() 之后，收发消息、心跳、自动重连全部由

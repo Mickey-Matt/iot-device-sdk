@@ -153,7 +153,7 @@ bool MqttSink::Open(std::string& error) {
     const int rc = ::mosquitto_connect_async(mosq_, config_.broker_host.c_str(),
                                              config_.broker_port, config_.keepalive_sec);
     if (rc != MOSQ_ERR_SUCCESS) {
-        error = std::string("发起连接失败：") + ::mosquitto_strerror(rc);
+        error = std::string("连接请求未能入队：") + ::mosquitto_strerror(rc);
         ::mosquitto_destroy(mosq_);
         mosq_ = nullptr;
         return false;
@@ -216,12 +216,12 @@ void MqttSink::Close() {
     // --- force 到底做了什么（读源码 + 实测更正，原来的因果写错了）---
     // 这里以前写的是"force=true 本该关掉 socket 把 poll 打断，但 Windows 上不生效"，
     // 实际 mosquitto_loop_stop 内部是两件独立的事：
-    //   ① send(sockpairW, 1 字节) —— 打断 select()，和 force 无关，总是执行
-    //   ② if(force) pthread_cancel(thread_id) —— force 唯一的动作，硬杀线程
-    // 也就是：负责"叫醒"的是 ①，force 管的是"叫不醒就直接杀掉"
+    //   1) send(sockpairW, 1 字节) —— 打断 select()，和 force 无关，总是执行
+    //   2) if(force) pthread_cancel(thread_id) —— force 唯一的动作，硬杀线程
+    // 也就是：负责"叫醒"的是 1)，force 管的是"叫不醒就直接杀掉"
     //
     // 实测（本机环境，没有 broker 在跑）：
-    //   - ① 的唤醒字节不可靠，force=false 时 6 次全部卡满 15 秒，一次都没被叫醒
+    //   - 1) 的唤醒字节不可靠，force=false 时 6 次全部卡满 15 秒，一次都没被叫醒
     //   - force=true 时能否快退取决于 pthread_cancel 赶上的时机，
     //     随机两态：约 3 秒（cancel 及时）或约 15 秒（没赶上）
     //   - 原文说"连不上 broker 时反而 0 ms"也不对：恰恰是连不上时
@@ -248,8 +248,8 @@ void MqttSink::Close() {
         snapshot = stats_;
     }
     LOG_INFO("MQTT 已断开：" << config_.broker_host << ":" << config_.broker_port
-                             << "（统计：连接成功 " << snapshot.connect_success
-                             << " 次，收到 " << snapshot.messages_received << " 条，发布成功 "
+                             << "（统计：连接成功 " << snapshot.connect_success << " 次，收到 "
+                             << snapshot.messages_received << " 条，发布成功 "
                              << snapshot.publish_ok << " 条，发布失败 " << snapshot.publish_failed
                              << " 条）");
 }
@@ -290,7 +290,7 @@ bool MqttSink::Publish(const DeviceMessage& message, std::string& error) {
 }
 
 bool MqttSink::PublishRaw(const std::string& topic, const std::string& payload,
-                            std::string& error) {
+                          std::string& error) {
     if (mosq_ == nullptr) {
         error = "MqttSink 尚未打开";
         ++stats_.publish_failed;
@@ -351,7 +351,7 @@ void MqttSink::OnDisconnectStatic(struct mosquitto* /*mosq*/, void* obj, int rc)
 }
 
 void MqttSink::OnMessageStatic(struct mosquitto* /*mosq*/, void* obj,
-                                 const struct mosquitto_message* msg) {
+                               const struct mosquitto_message* msg) {
     if (msg == nullptr || msg->topic == nullptr) {
         return;
     }
