@@ -207,16 +207,26 @@ void MqttSink::Close() {
     // 【顺序很重要，这三步不能随便换】
     //
     // 1) 必须先 disconnect，再 loop_stop —— 反过来会卡十几秒
-    //    后台线程平时阻塞在 poll() 上，而 poll 的超时是按 keepalive 算的
-    //    （keepalive_sec = 15 → 线程一睡就是十几秒），force=true 本该关掉
-    //    socket 把 poll 打断，但它在 Windows 上不生效（libmosquitto issue #117），
-    //    于是 loop_stop 里的 join 只能干等线程自己醒过来
-    //    disconnect 会主动唤醒线程，让它立刻看到停止标志
-    //    实测（libmosquitto 2.0.22 + MSYS2 UCRT64，keepalive=15，连接正常时）：
+    //    后台线程可能正阻塞在 select() 或重连等待里，join 只能干等它自己醒过来
+    //    disconnect 会主动唤醒后台线程，让它立刻看到停止标志
+    //    实测（libmosquitto 2.0.22 + MSYS2 UCRT64，连接正常时）：
     //      先 loop_stop 再 disconnect → 13011 ms
     //      先 disconnect 再 loop_stop → 0 ms
-    //    这个坑只在【连接正常】时发作，连不上 broker 时线程在重连等待里，
-    //    force 恰好打得断，反而是 0 ms —— 所以它才这么难查
+    //
+    // --- force 到底做了什么（读源码 + 实测更正，原来的因果写错了）---
+    // 这里以前写的是"force=true 本该关掉 socket 把 poll 打断，但 Windows 上不生效"，
+    // 实际 mosquitto_loop_stop 内部是两件独立的事：
+    //   ① send(sockpairW, 1 字节) —— 打断 select()，和 force 无关，总是执行
+    //   ② if(force) pthread_cancel(thread_id) —— force 唯一的动作，硬杀线程
+    // 也就是：负责"叫醒"的是 ①，force 管的是"叫不醒就直接杀掉"
+    //
+    // 实测（本机环境，没有 broker 在跑）：
+    //   - ① 的唤醒字节不可靠，force=false 时 6 次全部卡满 15 秒，一次都没被叫醒
+    //   - force=true 时能否快退取决于 pthread_cancel 赶上的时机，
+    //     随机两态：约 3 秒（cancel 及时）或约 15 秒（没赶上）
+    //   - 原文说"连不上 broker 时反而 0 ms"也不对：恰恰是连不上时
+    //     （线程在重连循环里，卡在阻塞 connect 或退避等待上）更容易卡住
+    //     所以别把 force 当成"保证立刻返回"的手段
     //
     // 2) destroy 必须放在 loop_stop 之后：线程还在跑时 destroy 会让它
     //    访问已释放的内存 → 崩溃
