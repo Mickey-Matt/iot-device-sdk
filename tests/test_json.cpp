@@ -6,9 +6,7 @@
 // 答"我手动跑了几遍"和答"我写了 12 个自动化测试用例，覆盖了边界情况"
 // 是两个完全不同层次的回答，后者说明你有工程意识
 //
-// 这里不引入 doctest/Catch2，而是手写 20 行断言宏 ——
-// 目的是让你看清"测试框架本质上是什么"：不过是自动比较 + 统计失败数
-// 等你看懂了这 20 行，再去用 doctest 就是水到渠成
+// 这里不引入 doctest/Catch2，断言宏在 tests/test_check.h，两个测试程序共用
 // ===========================================================================
 
 #include <cstdio>
@@ -16,26 +14,13 @@
 
 #include "iotd/device_client.h"
 #include "iotd/json.h"
+#include "test_check.h"
 
 #if defined(_WIN32)
 #include <windows.h> // SetConsoleOutputCP 需要它
 #endif
 
 namespace {
-
-int g_passed = 0;
-int g_failed = 0;
-
-// 断言宏：条件不成立就打印"哪个文件、哪一行、期望什么"
-#define CHECK(cond)                                                                                \
-    do {                                                                                           \
-        if (cond) {                                                                                \
-            ++g_passed;                                                                            \
-        } else {                                                                                   \
-            ++g_failed;                                                                            \
-            std::printf("  [失败] %s:%d  条件不成立: %s\n", __FILE__, __LINE__, #cond);            \
-        }                                                                                          \
-    } while (false)
 
 // 比较两个 double 是否近似相等
 // 【重要】浮点数不能用 == 比较！

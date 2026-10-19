@@ -92,11 +92,15 @@ file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/samples DESTINATION ${CMAKE_CURRENT_BINARY
 add_library(iotd_core STATIC
     src/json.cpp
     src/logger.cpp
-    src/mock_source.cpp
+    src/line_framer.cpp
+    src/capture.cpp
+    src/capture_recorder.cpp
     src/serial_port_source.cpp
     src/mqtt_sink.cpp
     src/device_client.cpp
     src/log_sink.cpp
+    src/mock_source.cpp
+    src/file_replay_source.cpp
 )
 
 # PUBLIC 表示：谁链接 iotd_core，谁就自动获得这个 include 目录和 mosquitto
@@ -118,12 +122,19 @@ add_executable(iot-debug tools/iot_debug_main.cpp)
 target_link_libraries(iot-debug PRIVATE iotd_core)
 
 # ---------------------------------------------------------------------------
-# 测试（用 CTest 驱动；现在只有一个最简测试，后面会扩充）
+# 测试（用 CTest 驱动）
 # ---------------------------------------------------------------------------
 enable_testing()
+
 add_executable(iotd_tests tests/test_json.cpp)
 target_link_libraries(iotd_tests PRIVATE iotd_core)
 add_test(NAME json_tests COMMAND iotd_tests)
+
+add_executable(iotd_framer_tests tests/test_framer.cpp)
+target_link_libraries(iotd_framer_tests PRIVATE iotd_core)
+# 样本路径按 "samples/captures/xxx.txt" 写死，所以工作目录必须是构建目录
+add_test(NAME framer_tests COMMAND iotd_framer_tests
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # ---------------------------------------------------------------------------
 # 构建后把 libmosquitto.dll 复制到产物目录

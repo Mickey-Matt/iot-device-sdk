@@ -1,0 +1,4 @@
+# 现场：设备固件用的是 printf("\r\n")，帧尾会多出一个 0x0D
+# 表现：不去掉这个字节的话，JSON 解析会在帧尾报"非法字符"，位置恰好是最后一个字符
+@0	{"device_id":"fish-tank-01","timestamp_ms":1750000000000,"temp":25.10,"humid":60.20,"light_lux":420.000000}\r\n
+@100	{"device_id":"fish-tank-01","timestamp_ms":1750000000100,"temp":25.11,"humid":60.21,"light_lux":420.000000}\r\n

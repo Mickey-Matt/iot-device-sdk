@@ -1,0 +1,3 @@
+# 现场：上位机每 50ms 才取一次数据，设备却在这期间连发两条，两次读取之间攒下了两条完整的
+# 表现：一看日志就是"两条 JSON 挤在同一行"，第二条开头不是 '{'
+@0	{"device_id":"fish-tank-01","timestamp_ms":1750000000000,"temp":25.10,"humid":60.20,"light_lux":420.000000}\n{"device_id":"fish-tank-01","timestamp_ms":1750000000050,"temp":25.20,"humid":60.30,"light_lux":421.000000}\n

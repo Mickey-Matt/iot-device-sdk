@@ -1,40 +1,17 @@
 // ===========================================================================
 // src/serial_port_source.cpp
 //
-// 【本项目技术含量最高的一个文件，也是面试最值得讲的一个】
-//
-// 核心问题：串口是"字节流"，不是"消息流"
-//   你调用一次 ReadFile，可能只收到半条 JSON，
-//   也可能一次收到三条 JSON 拼在一起
-//   前者叫"半包/拆包"，后者叫"粘包" —— 这是串口编程第一大坑
-//
-// 解决方案（行业标准做法）：
-//   1. 定义一个"帧边界"，本项目用换行符 '\n' 作为一帧的结束
-//      （真实协议里也可能是固定长度、或者带长度字段的头部）
-//   2. 把收到的所有字节先追加进一个缓冲区 buffer_
-//   3. 每次从缓冲区里找 '\n'：
-//        找到了   → 取出它之前的内容作为一整帧，从缓冲区删除这部分
-//        没找到   → 说明这帧还没收完，留着等下次数据到达
-//   4. 缓冲区设上限：如果一直收不到换行符，超过上限就丢弃并报警，
-//      否则恶意或异常数据会把内存撑爆
-//
-// 这套逻辑在面试里叫"分帧"，能讲清楚它是很强的加分项
+// Windows 串口读写，切帧交给 LineFramer
 // ===========================================================================
 
 #include "iotd/serial_port_source.h"
 
-#include <algorithm>
 #include <cstdio>
+#include <utility>
 
 #include "iotd/logger.h"
 
 namespace iotd {
-namespace {
-
-// 缓冲区上限：8KB，正常一帧 JSON 也就几百字节，超过说明出了异常
-constexpr std::size_t kMaxBufferBytes = 8 * 1024;
-
-} // namespace
 
 SerialPortSource::SerialPortSource(std::string port_name, int baud_rate)
     : port_name_(std::move(port_name)), baud_rate_(baud_rate) {}
@@ -134,7 +111,7 @@ bool SerialPortSource::Open(std::string& error) {
     // 清空可能残留的旧数据
     ::PurgeComm(handle_, PURGE_RXCLEAR | PURGE_TXCLEAR);
 
-    buffer_.clear();
+    framer_.Reset();
     LOG_INFO("串口已打开：" << Name());
     return true;
 #else
@@ -151,7 +128,7 @@ void SerialPortSource::Close() {
         LOG_INFO("串口已关闭：" << Name());
     }
 #endif
-    buffer_.clear();
+    framer_.Reset();
 }
 
 ReadResult SerialPortSource::Poll() {
@@ -163,7 +140,7 @@ ReadResult SerialPortSource::Poll() {
         return result;
     }
 
-    // --- 第 1 步：把硬件缓冲区里的字节全部搬进我们的 buffer_ ---
+    // --- 第 1 步：把硬件缓冲区里的字节搬进分帧器 ---
     char chunk[512];
     DWORD bytes_read = 0;
     if (!::ReadFile(handle_, chunk, sizeof(chunk), &bytes_read, nullptr)) {
@@ -172,34 +149,25 @@ ReadResult SerialPortSource::Poll() {
     }
 
     if (bytes_read > 0) {
-        buffer_.append(chunk, bytes_read);
-        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 " << buffer_.size() << " 字节");
+        framer_.Append(chunk, bytes_read);
+        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 " << framer_.BufferedBytes()
+                              << " 字节");
     }
 
-    // --- 第 2 步：从缓冲区里切出一整帧 ---
-    const std::size_t newline_pos = buffer_.find('\n');
-    if (newline_pos == std::string::npos) {
-        // 还没收到换行符 → 这帧不完整，等下次
-        // 但要做长度保护，防止缓冲区无限增长
-        if (buffer_.size() > kMaxBufferBytes) {
-            result.error = "缓冲区超过 8KB 仍未收到换行符，已丢弃（可能是波特率不匹配导致乱码）";
-            buffer_.clear();
-        }
-        return result; // has_data == false，属于正常情况，不是错误
+    // --- 第 2 步：从分帧器里取一整帧 ---
+    const std::size_t dropped_before = framer_.DroppedBytes();
+    const std::optional<std::string> frame = framer_.Next();
+
+    if (framer_.DroppedBytes() != dropped_before) {
+        result.error = "缓冲区超过 " + std::to_string(framer_.MaxBufferBytes()) +
+                       " 字节仍未收到换行符，已丢弃（可能是波特率不匹配导致乱码）";
+        return result;
     }
 
-    // 切出这一帧，并从缓冲区里删掉它（包括那个换行符）
-    std::string frame = buffer_.substr(0, newline_pos);
-    buffer_.erase(0, newline_pos + 1);
-
-    // 处理 Windows 换行是 \r\n 的情况：把结尾的 \r 去掉
-    // 如果不处理，JSON 解析器会把 \r 当成非法字符报错 —— 这是个经典坑
-    if (!frame.empty() && frame.back() == '\r') {
-        frame.pop_back();
+    if (frame) {
+        result.has_data = true;
+        result.frame = std::move(*frame);
     }
-
-    result.has_data = true;
-    result.frame = std::move(frame);
     return result;
 #else
     result.error = "当前平台尚未实现串口支持";
