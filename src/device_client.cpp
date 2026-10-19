@@ -62,12 +62,14 @@ void DeviceClient::Stop() {
     source_.Close();
     running_ = false;
     LOG_INFO("DeviceClient 已停止。统计：收到 "
-             << stats_.frames_received << " 帧，成功 " << stats_.frames_ok << " 帧，解析失败 "
-             << stats_.parse_failed << " 帧，上报失败 " << stats_.publish_failed << " 帧，数据源错误 "
-             << stats_.source_errors << " 次");
+             << stats_.frames_received << " 帧，成功 " << stats_.frames_ok
+             << " 帧，解析失败 " << stats_.parse_failed << " 帧，上报失败 "
+             << stats_.publish_failed << " 帧，数据源错误 " << stats_.source_errors
+             << " 次");
 }
 
-bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std::string& error) {
+bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out,
+                              std::string& error) {
     if (frame.empty()) {
         error = "空帧";
         return false;
@@ -111,8 +113,8 @@ bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out, std:
         // 理由：现场环境中偶发的坏帧是常态（干扰、拔插、波特率抖动），
         //       如果一帧坏数据就让整个服务挂掉，那是不可接受的
         //       这个取舍在面试里非常值得讲
-        error =
-            std::string("JSON 解析失败（位置 ") + std::to_string(e.position()) + "）：" + e.what();
+        error = std::string("JSON 解析失败（位置 ") + std::to_string(e.position()) +
+                "）：" + e.what();
         return false;
     }
 }

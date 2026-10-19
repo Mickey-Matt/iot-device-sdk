@@ -6,9 +6,7 @@
 // 答"我手动跑了几遍"和答"我写了 12 个自动化测试用例，覆盖了边界情况"
 // 是两个完全不同层次的回答，后者说明你有工程意识
 //
-// 这里不引入 doctest/Catch2，而是手写 20 行断言宏 ——
-// 目的是让你看清"测试框架本质上是什么"：不过是自动比较 + 统计失败数
-// 等你看懂了这 20 行，再去用 doctest 就是水到渠成
+// 这里不引入 doctest/Catch2，断言宏在 tests/test_check.h，两个测试程序共用
 // ===========================================================================
 
 #include <cstdio>
@@ -16,26 +14,13 @@
 
 #include "iotd/device_client.h"
 #include "iotd/json.h"
+#include "test_check.h"
 
 #if defined(_WIN32)
 #include <windows.h> // SetConsoleOutputCP 需要它
 #endif
 
 namespace {
-
-int g_passed = 0;
-int g_failed = 0;
-
-// 断言宏：条件不成立就打印"哪个文件、哪一行、期望什么"
-#define CHECK(cond)                                                                                \
-    do {                                                                                           \
-        if (cond) {                                                                                \
-            ++g_passed;                                                                            \
-        } else {                                                                                   \
-            ++g_failed;                                                                            \
-            std::printf("  [失败] %s:%d  条件不成立: %s\n", __FILE__, __LINE__, #cond);            \
-        }                                                                                          \
-    } while (false)
 
 // 比较两个 double 是否近似相等
 // 【重要】浮点数不能用 == 比较！
@@ -48,8 +33,9 @@ bool NearlyEqual(double a, double b, double eps = 1e-9) {
 
 void TestValidMessage() {
     std::printf("[测试] 正常报文解析\n");
-    const std::string frame = R"({"device_id":"fish-tank-01","timestamp_ms":1700000000000,)"
-                              R"("temp":25.6,"humid":62.5,"light_lux":420})";
+    const std::string frame =
+        R"({"device_id":"fish-tank-01","timestamp_ms":1700000000000,)"
+        R"("temp":25.6,"humid":62.5,"light_lux":420})";
 
     iotd::DeviceMessage msg;
     std::string err;
@@ -75,7 +61,8 @@ void TestJsonBasics() {
     const auto nested = iotd::json::Parse(R"({"a":{"b":{"c":7}}})");
     CHECK(nested.IsObject());
     const auto& inner = std::get<iotd::json::Object>(nested.data).at("a");
-    CHECK(iotd::json::GetNumber(std::get<iotd::json::Object>(inner.data).at("b"), "c", -1) == 7.0);
+    CHECK(iotd::json::GetNumber(std::get<iotd::json::Object>(inner.data).at("b"), "c",
+                                -1) == 7.0);
 
     // 数组
     const auto arr = iotd::json::Parse("[1, 2, 3]");
@@ -136,18 +123,19 @@ void TestDeviceClientRejectsBadData() {
     CHECK(!iotd::DeviceClient::ParseFrame("[1,2,3]", msg, err));
 
     // 温度超范围（模拟传感器故障）
-    CHECK(
-        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":110.0,"humid":50})", msg, err));
+    CHECK(!iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":110.0,"humid":50})",
+                                          msg, err));
 
     // 湿度超范围
-    CHECK(
-        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":150})", msg, err));
+    CHECK(!iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":150})",
+                                          msg, err));
 
     // 空帧（串口空闲时可能出现）
     CHECK(!iotd::DeviceClient::ParseFrame("", msg, err));
 
     // 合法数据必须通过（防止前面的判断写得太严把好数据也挡了）
-    CHECK(iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":50})", msg, err));
+    CHECK(iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":50})",
+                                         msg, err));
 }
 
 void TestDumpRoundTrip() {

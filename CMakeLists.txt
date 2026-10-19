@@ -92,7 +92,9 @@ file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/samples DESTINATION ${CMAKE_CURRENT_BINARY
 add_library(iotd_core STATIC
     src/json.cpp
     src/logger.cpp
-    src/mock_source.cpp
+    src/line_framer.cpp
+    src/capture.cpp
+    src/capture_recorder.cpp
     src/serial_port_source.cpp
     src/mqtt_sink.cpp
     src/device_client.cpp
@@ -106,24 +108,44 @@ target_include_directories(iotd_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(iotd_core PUBLIC ${MOSQUITTO_TARGET})
 
 # ---------------------------------------------------------------------------
+# 测试替身库
+#
+# MockSource 和 FileReplaySource 不是产品的一部分：客户设备上不会跑模拟器，
+# 也不会在设备里回放自己的录制。放一个单独的库，iotd_core 里就只剩生产代码，
+# 别人链接 SDK 时不会白白带上一堆用不到的东西
+# ---------------------------------------------------------------------------
+add_library(iotd_test_support STATIC
+    src/mock_source.cpp
+    src/file_replay_source.cpp
+)
+target_link_libraries(iotd_test_support PUBLIC iotd_core)
+
+# ---------------------------------------------------------------------------
 # 可执行程序
 # ---------------------------------------------------------------------------
 add_executable(device_sim examples/device_sim.cpp)
-target_link_libraries(device_sim PRIVATE iotd_core)
+target_link_libraries(device_sim PRIVATE iotd_test_support)
 
 add_executable(mqtt_demo examples/mqtt_demo.cpp)
-target_link_libraries(mqtt_demo PRIVATE iotd_core)
+target_link_libraries(mqtt_demo PRIVATE iotd_test_support)
 
 add_executable(iot-debug tools/iot_debug_main.cpp)
-target_link_libraries(iot-debug PRIVATE iotd_core)
+target_link_libraries(iot-debug PRIVATE iotd_test_support)
 
 # ---------------------------------------------------------------------------
-# 测试（用 CTest 驱动；现在只有一个最简测试，后面会扩充）
+# 测试（用 CTest 驱动）
 # ---------------------------------------------------------------------------
 enable_testing()
+
 add_executable(iotd_tests tests/test_json.cpp)
 target_link_libraries(iotd_tests PRIVATE iotd_core)
 add_test(NAME json_tests COMMAND iotd_tests)
+
+add_executable(iotd_framer_tests tests/test_framer.cpp)
+target_link_libraries(iotd_framer_tests PRIVATE iotd_test_support)
+# 样本路径按 "samples/captures/xxx.txt" 写死，所以工作目录必须是构建目录
+add_test(NAME framer_tests COMMAND iotd_framer_tests
+         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 # ---------------------------------------------------------------------------
 # 构建后把 libmosquitto.dll 复制到产物目录

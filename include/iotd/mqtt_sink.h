@@ -16,8 +16,8 @@
 //   结果是：默认配置下这个"数据源"永远产不出数据，挂着牌子不干活。
 //   现在把它摘干净了 —— 它只做两件真正相关的事：
 //
-//     ① 发遥测      DeviceClient 调 Publish()      → PUBLISH dev/{id}/up
-//     ② 收命令      broker 推过来 → OnCommand 虚函数 → 你的代码
+//     1) 发遥测      DeviceClient 调 Publish()      → PUBLISH dev/{id}/up
+//     2) 收命令      broker 推过来 → OnCommand 虚函数 → 你的代码
 //
 //   这两件事共用同一条 socket，所以留在一个类里（理由见下）
 //
@@ -101,14 +101,10 @@ struct MqttConfig {
     std::string username;                  // 需要鉴权时填写
     std::string password;
     std::string device_id = "fish-tank-01"; // 用于拼接主题
-    int keepalive_sec = 60;                 // 心跳间隔：多久没交互就发 PINGREQ
+    int keepalive_sec = 60;                 // 心跳间隔：超时没交互就发 PINGREQ
 
-    // --- QoS 选型（面试必答）---
-    // 0 = 至多一次：可能丢，不重发
-    // 1 = 至少一次：可能重复，但不会丢   ← 我们选它
-    // 2 = 恰好一次：握手两次，开销最大
     // 设备遥测能容忍"偶发重复"（后端去重即可），但不能容忍"丢"，
-    // 而 QoS 2 的开销对嵌入式设备不划算，所以 QoS 1 是工程上的平衡点
+    // 而 QoS 2 的开销对嵌入式设备不划算，所以 QoS 1 更合适
     int qos = 1;
 
     // --- 重连退避 ---
@@ -136,8 +132,8 @@ struct MqttConfig {
 //   第一版让它也当一路数据源，靠一个 queue_downlink 开关把下行命令塞进队列
 //   结果是：默认配置下那个"数据源"永远产不出东西，挂着牌子不干活
 //   现在摘干净了，它只做两件真正相关的事：
-//     ① 发遥测  —— DeviceClient 调 Publish()
-//     ② 收命令  —— broker 推过来，走 OnCommand 虚函数
+//     1) 发遥测  —— DeviceClient 调 Publish()
+//     2) 收命令  —— broker 推过来，走 OnCommand 虚函数
 //
 // 二、为什么这两件事留在一个类里
 //   因为它们共用同一条 socket：
@@ -194,7 +190,8 @@ public:
     // 用途：调试（手工注入一条命令）、发回执（cmd_ack）
     // 名字带 Raw 是为了和上面那个业务级的 Publish 区分开 ——
     // 两个都叫 Publish 的话，读代码时分不清调用方要的是哪一层
-    bool PublishRaw(const std::string& topic, const std::string& payload, std::string& error);
+    bool PublishRaw(const std::string& topic, const std::string& payload,
+                    std::string& error);
 
     // 供 device_sim / iot-debug 查询连接状态
     // 【注意】这个标志会被后台线程改写，所以用 std::atomic 而不是 bool

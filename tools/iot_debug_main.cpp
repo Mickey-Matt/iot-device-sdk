@@ -12,21 +12,28 @@
 //   iot-debug ports               同上（别名）
 //   iot-debug mock [间隔ms]       用模拟数据源跑，默认 500ms
 //   iot-debug serial COM3 [波特率] 从真实串口读取并打印解析结果
+//   iot-debug serial COM3 --record 现场.cap   边读边把原始字节录下来
+//   iot-debug replay 现场.cap     按录制时的时间间隔把字节块重新喂回去
 //   iot-debug parse '{"a":1}'     只解析一段 JSON 并打印，用于快速验证
 // ===========================================================================
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <string>
 #include <thread>
+#include <vector>
 
+#include "iotd/capture_recorder.h"
 #include "iotd/data_source.h"
 #include "iotd/device_client.h"
+#include "iotd/file_replay_source.h"
 #include "iotd/json.h"
 #include "iotd/log_sink.h"
 #include "iotd/logger.h"
@@ -52,12 +59,16 @@ void PrintUsage() {
                  "  iot-debug list                     列出本机可用串口\n"
                  "  iot-debug mock [间隔ms]            用模拟数据源运行（默认 500ms）\n"
                  "  iot-debug serial <端口> [波特率]   从串口读取并解析（默认 115200）\n"
+                 "  iot-debug serial <端口> --record <文件>   边读边把原始字节录下来\n"
+                 "  iot-debug replay <录制文件>        按录制时的时间间隔回放\n"
                  "  iot-debug parse <JSON文本>         解析一段 JSON 并打印结果\n"
                  "  iot-debug parse --file <文件路径>  从文件读取 JSON 再解析（推荐）\n"
                  "\n"
                  "示例:\n"
                  "  iot-debug mock 200\n"
                  "  iot-debug serial COM3 115200\n"
+                 "  iot-debug serial COM3 --record field.cap\n"
+                 "  iot-debug replay samples/captures/half.txt\n"
                  "  iot-debug parse --file sample.json\n"
                  "\n"
                  "【经验提示】直接命令行传 JSON 很容易被 shell 吃掉引号，\n"
@@ -81,7 +92,8 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
 
     // 去掉 BOM
     if (out.size() >= 3 && static_cast<unsigned char>(out[0]) == 0xEF &&
-        static_cast<unsigned char>(out[1]) == 0xBB && static_cast<unsigned char>(out[2]) == 0xBF) {
+        static_cast<unsigned char>(out[1]) == 0xBB &&
+        static_cast<unsigned char>(out[2]) == 0xBF) {
         out.erase(0, 3);
     }
 
@@ -97,12 +109,15 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
     return true;
 }
 
-// 统一的运行循环：让 mock 与 serial 两个子命令共用同一段驱动代码
-// 这是"消除重复"的工程习惯 —— 如果两个子命令各写一遍循环，
-// 以后要改退出逻辑就得改两处，早晚会漏一处
-int RunLoop(iotd::IDataSource& source, const std::string& tag) {
+// 统一的运行循环：mock / serial / replay 三个子命令共用同一段驱动代码
+// 这是"消除重复"的工程习惯 —— 如果三个子命令各写一遍循环，
+// 以后要改退出逻辑就得改三处，早晚会漏一处
+//
+// finished 为空表示一直跑到按 Ctrl+C；回放这类"有终点"的数据源传自己的结束判断
+int RunLoop(iotd::IDataSource& source, const std::string& tag,
+            const std::function<bool()>& finished = {}) {
     // 出口用 LogSink：调试工具只关心"数据长什么样"，不需要真的上云
-    // tag 会作为日志前缀，这样 mock 和 serial 两路输出能分得清
+    // tag 会作为日志前缀，这样几路输出能分得清
     iotd::LogSink sink(tag);
     iotd::DeviceClient client(source, sink);
 
@@ -115,7 +130,7 @@ int RunLoop(iotd::IDataSource& source, const std::string& tag) {
     std::signal(SIGINT, OnSignal);
     LOG_INFO("按 Ctrl+C 退出");
 
-    while (!g_should_exit.load()) {
+    while (!g_should_exit.load() && !(finished && finished())) {
         client.PollOnce();
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
@@ -130,6 +145,23 @@ int RunLoop(iotd::IDataSource& source, const std::string& tag) {
     // 这个统计表就是"技术支持"的交付物雏形：
     // 客户问"为什么我的数据丢了"，你把这张表拍给他，
     // 一眼就能看出是链路没通（收到帧数=0）还是数据格式错（解析失败数高）
+    return 0;
+}
+
+int CmdReplay(const std::string& path) {
+    iotd::FileReplaySource replay(path);
+    const int rc = RunLoop(replay, "replay", [&replay] { return replay.Finished(); });
+    if (rc != 0) {
+        return rc;
+    }
+
+    std::cout << "\n--- 回放进度 ---\n"
+              << "字节块   : " << replay.FedChunks() << " / " << replay.ChunkCount()
+              << "\n"
+              << "丢弃字节 : " << replay.DroppedBytes() << "\n"
+              << "残留半帧 : " << replay.BufferedBytes() << " 字节\n";
+    // 残留半帧不为 0 是正常的：录制正好停在"帧只到一半"的位置
+    // 但如果它很大又是乱码，就要怀疑录制时的波特率跟设备对不上
     return 0;
 }
 
@@ -157,10 +189,12 @@ int CmdParse(const std::string& text, const std::string& source_label) {
 
         // 顺便演示如何按字段取值
         std::cout << "\n字段提取：\n"
-                  << "  device_id  = " << iotd::json::GetString(value, "device_id", "(缺失)")
+                  << "  device_id  = "
+                  << iotd::json::GetString(value, "device_id", "(缺失)") << "\n"
+                  << "  temp       = " << iotd::json::GetNumber(value, "temp", -999)
                   << "\n"
-                  << "  temp       = " << iotd::json::GetNumber(value, "temp", -999) << "\n"
-                  << "  humid      = " << iotd::json::GetNumber(value, "humid", -999) << "\n";
+                  << "  humid      = " << iotd::json::GetNumber(value, "humid", -999)
+                  << "\n";
         return 0;
     } catch (const iotd::json::ParseError& e) {
         // 出错时打印"第几个字符出错"，而不是笼统地说"解析失败"
@@ -221,10 +255,71 @@ int main(int argc, char** argv) {
             std::cerr << "错误：serial 需要指定端口名，例如 'iot-debug serial COM3'\n";
             return 1;
         }
-        const std::string port = argv[2];
-        const int baud = (argc >= 4) ? std::atoi(argv[3]) : 115200;
-        iotd::SerialPortSource serial(port, baud > 0 ? baud : 115200);
-        return RunLoop(serial, port);
+
+        // 端口和波特率是位置参数，--record 可以夹在中间，所以要自己走一遍
+        std::string port;
+        std::string record_path;
+        int baud = 115200;
+        bool baud_set = false;
+        for (int i = 2; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "--record") {
+                if (i + 1 >= argc) {
+                    std::cerr
+                        << "错误：--record 后面要跟文件路径，例如 --record field.cap\n";
+                    return 1;
+                }
+                record_path = argv[++i];
+            } else if (port.empty()) {
+                port = arg;
+            } else if (!baud_set) {
+                const int parsed = std::atoi(arg.c_str());
+                baud = parsed > 0 ? parsed : baud;
+                baud_set = true;
+            }
+        }
+
+        iotd::SerialPortSource serial(port, baud);
+
+        // 录制只挂在 serial 上：mock 产出的本来就是整帧，录下来也没有分帧证据
+        iotd::CaptureRecorder recorder(record_path);
+        if (!record_path.empty()) {
+            std::string record_error;
+            if (!recorder.Open(record_error)) {
+                std::cerr << "警告：" << record_error << "，继续运行但不录制\n";
+            } else {
+                serial.SetTap([&recorder](const char* data, std::size_t n) {
+                    recorder.OnBytes(data, n);
+                });
+                LOG_INFO("正在录制串口原始字节：" << recorder.CurrentPath());
+            }
+        }
+
+        const int rc = RunLoop(serial, port);
+
+        if (recorder.RecordedBytes() > 0) {
+            LOG_INFO("录制结束：" << recorder.CurrentPath() << "，共 "
+                                  << recorder.RecordedBytes() << " 字节");
+            if (recorder.LostBytes() > 0) {
+                LOG_WARN("录制期间有 " << recorder.LostBytes() << " 字节因写入失败丢失");
+            }
+        } else if (!record_path.empty()) {
+            // 串口没打开或者一块字节都没收到，空文件留着只会让人以为录到了东西
+            recorder.Close();
+            const std::string empty_path = recorder.CurrentPath();
+            std::remove(empty_path.c_str());
+            LOG_WARN("录制没有任何内容，已删除空文件：" << empty_path);
+        }
+        return rc;
+    }
+
+    if (cmd == "replay") {
+        if (argc < 3) {
+            std::cerr << "错误：replay 需要指定录制文件，例如 "
+                         "'iot-debug replay samples/captures/half.txt'\n";
+            return 1;
+        }
+        return CmdReplay(argv[2]);
     }
 
     if (cmd == "parse") {

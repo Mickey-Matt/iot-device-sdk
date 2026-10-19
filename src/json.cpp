@@ -99,7 +99,9 @@ private:
     }
 
     // 抛出一个"带位置信息"的错误
-    [[noreturn]] void Fail(const std::string& message) const { throw ParseError(message, pos_); }
+    [[noreturn]] void Fail(const std::string& message) const {
+        throw ParseError(message, pos_);
+    }
     // [[noreturn]] 是 C++11 属性，告诉编译器"这个函数一定不会正常返回"
     // 好处：编译器知道后面的代码不会执行，不会误报"缺少返回值"的警告
 
@@ -371,7 +373,8 @@ std::string Dump(const JsonValue& value) {
     return out;
 }
 
-std::string GetString(const JsonValue& obj, const std::string& key, const std::string& fallback) {
+std::string GetString(const JsonValue& obj, const std::string& key,
+                      const std::string& fallback) {
     if (!obj.IsObject())
         return fallback;
     const auto& map = std::get<Object>(obj.data);

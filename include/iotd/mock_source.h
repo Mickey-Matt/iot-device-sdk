@@ -1,12 +1,6 @@
 // ===========================================================================
 // iotd/mock_source.h
-//
-// 模拟数据源：不需要任何硬件，自己造 JSON 报文
-//
-// 它的价值：
-//   1. 让你今天就能跑通全流程（否则你要先买开发板）
-//   2. 做单元测试时，用它注入各种边界数据（半包、乱码、超长帧）
-//   3. 演示时不怕现场没有硬件
+// 模拟数据源
 // ===========================================================================
 
 #pragma once
@@ -29,13 +23,14 @@ public:
     std::string Name() const override { return "MockSource"; }
 
     // 测试用的开关：让下一帧故意产出一段坏的 JSON
-    // 用来验证"解析失败时程序会不会崩" —— 这是健壮性的核心测试
     void InjectCorruptedFrame() { inject_corrupted_ = true; }
+    void SetCorruptEveryN(int);
 
 private:
     std::string BuildFrame();
 
     int interval_ms_;
+    int corrupt_every_n_ = 7;
     bool opened_ = false;
     bool inject_corrupted_ = false;
     std::uint64_t counter_ = 0;    // 第几帧

@@ -16,9 +16,11 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "iotd/data_source.h"
+#include "iotd/line_framer.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -40,13 +42,16 @@ public:
     // 静态工具：列出本机可用的串口名，供用户选择
     static std::vector<std::string> ListAvailablePorts();
 
+    // 把串口收到的原始字节块原样回调出去（在分帧之前），录制用
+    void SetTap(LineFramer::Tap tap) { framer_.SetTap(std::move(tap)); }
+
 private:
 #if defined(_WIN32)
     HANDLE handle_ = INVALID_HANDLE_VALUE;
 #endif
     std::string port_name_;
     int baud_rate_;
-    std::string buffer_; // 收数据的缓冲区 —— 解决"半包"的关键
+    LineFramer framer_; // 半包、粘包的拼接全在这里做，本类只管把字节搬进来
 };
 
 } // namespace iotd

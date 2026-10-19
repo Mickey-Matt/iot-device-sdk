@@ -1,0 +1,8 @@
+# 现场：设备端是 9600，上位机开成 115200，解出来全是没有意义的字节
+# 表现：会出现若干条解析失败的"帧"，直到参数改对、缓冲区被一个换行符清干净才恢复
+@0	\x00\xff\xaa\x55\xf8\x13\x9a
+@10	\x00\xaa\x55\xff\x00\x12\x9a\x0d\x0a
+@20	\x81\x80\xfe\x7f
+@30	\x0d\x0a
+@200	{"device_id":"fish-tank-01","timestamp_ms":1750000000200,"temp":25.12,"humid":60.22,"light_lux":420.000000}\n
+@300	{"device_id":"fish-tank-01","timestamp_ms":1750000000300,"temp":25.13,"humid":60.23,"light_lux":420.000000}\n

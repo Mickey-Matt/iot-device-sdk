@@ -49,10 +49,16 @@ enum class ProcessResult {
 class DeviceClient {
 public:
     // 构造：传入数据源和上报出口
-    //   注意两个参数的类型【不一样】，但它们完全可以是同一个对象
-    //   （对应标准库的 std::iostream：一个对象，既能读又能写）
+    //   两个参数的类型不一样，通常也是两个不同的对象：
+    //     第一个是"数据从哪来"（模拟器 / 串口）
+    //     第二个是"数据往哪去"（上云 / 打日志）
+    //   典型接法见 examples/mqtt_demo.cpp：client(sensor, cloud)
     //
-    //   用 IDataSource& 而不是 shared_ptr：明确表达"我不拥有它，也不负责销毁它"
+    //   不过"一个对象同时实现两个接口"也是合法的（标准库的 std::iostream
+    //   就是一个对象既能读又能写），本项目的 MqttSink 曾经同时是数据源和
+    //   出口，后来发现那个"数据源"身份是假的，就摘掉了 —— 见踩坑记录第 15 条
+    //
+    //   用引用而不是 shared_ptr：明确表达"我不拥有它们，也不负责销毁"
     DeviceClient(IDataSource& source, ITelemetrySink& sink);
 
     // 禁止拷贝，为什么？
@@ -94,11 +100,12 @@ public:
     // 把一帧文本解析成 DeviceMessage
     // 声明为 static，因为它不需要访问任何成员变量 ——
     // 这样测试时可以直接调 DeviceClient::ParseFrame(...) 而不用构造对象
-    static bool ParseFrame(const std::string& frame, DeviceMessage& out, std::string& error);
+    static bool ParseFrame(const std::string& frame, DeviceMessage& out,
+                           std::string& error);
 
 private:
-    IDataSource& source_;    // 从哪读（借用，不拥有）
-    ITelemetrySink& sink_;   // 往哪发（借用，不拥有）
+    IDataSource& source_;  // 从哪读（借用，不拥有）
+    ITelemetrySink& sink_; // 往哪发（借用，不拥有）
     bool running_ = false;
     Stats stats_;
     std::uint64_t sequence_ = 0; // 已上报条数，用作报文序号

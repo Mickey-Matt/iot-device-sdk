@@ -57,6 +57,24 @@ mosquitto -p 1883 -v
 
 **没有硬件也能完整跑通**——这是刻意的设计：数据源被抽象成接口，模拟器和真实串口可以互换，因此开发、测试、演示都不依赖硬件
 
+### 复现现场问题：先录，再放
+
+```bash
+# 让客户（或你自己）开着录制跑一遍，文件里存的是串口上真实跑过的字节块
+./build/iot-debug.exe serial COM3 115200 --record field.cap
+
+# 拿回来按原来的时间间隔回放，走的是和串口完全相同的分帧代码
+./build/iot-debug.exe replay field.cap
+
+# 内置五个现场病例，不用硬件也能看到半包、粘包、乱码、超限、CRLF 各自长什么样
+./build/iot-debug.exe replay samples/captures/half.txt
+./build/iot-debug.exe replay samples/captures/oversize.txt
+```
+
+录制文件一行一条记录：`@毫秒<TAB>字节块`，`#` 开头是注释
+
+**为什么录的是字节块而不是帧**：只有原始字节块才留着"这次只收到 12 字节"这类信息，退化成整帧之后，半包和粘包就再也测不出来了
+
 ### 验证 JSON 解析能力
 
 ```bash
@@ -86,7 +104,8 @@ mosquitto -p 1883 -v
 cd build
 ctest --output-on-failure
 # 或直接运行
-./iotd_tests.exe
+./iotd_tests.exe        # JSON 解析与报文校验
+./iotd_framer_tests.exe # 分帧、录制格式、五个现场病例的回放
 ```
 
 ---
@@ -100,17 +119,32 @@ iot-device-sdk/
 │   ├─ types.h                 公共数据结构：SensorReading / DeviceMessage
 │   ├─ json.h                  JSON 解析器接口
 │   ├─ logger.h                日志器
-│   ├─ data_source.h           数据源抽象接口（多态的核心）
+│   ├─ data_source.h           数据源抽象接口（数据从哪来）
+│   ├─ telemetry_sink.h        上报出口抽象接口（数据往哪去）
+│   ├─ line_framer.h           分帧：字节流切成一条条完整消息
+│   ├─ capture.h               录制文件格式（读、写、转义）
+│   ├─ capture_recorder.h      把串口收到的字节块录成文件
+│   ├─ file_replay_source.h    按录制时的时间线回放字节块
 │   ├─ mock_source.h           模拟数据源
 │   ├─ serial_port_source.h    串口数据源（Windows API）
+│   ├─ mqtt_sink.h             MQTT 出口：上报遥测 + 接收命令
+│   ├─ log_sink.h              只打日志的出口（不联网）
 │   └─ device_client.h         设备客户端：SDK 主入口
 ├─ src/                        实现（使用者不需要看）
 ├─ examples/device_sim.cpp     示例程序：模拟设备持续上报
+├─ examples/mqtt_demo.cpp      示例程序：完整的网关（采集 → 上报 → 收命令）
 ├─ tools/iot_debug_main.cpp    调试工具：命令行多子命令
-├─ tests/test_json.cpp         单元测试
+├─ tests/test_json.cpp         单元测试：JSON 解析与报文校验
+├─ tests/test_framer.cpp       单元测试：分帧、录制、回放
 ├─ samples/                    示例报文（含正常与损坏两种）
-└─ docs/                       设计文档、FAQ、排障案例
+│   └─ captures/               五个现场病例的录制文件
+└─ docs/
+    ├─ 实测记录.md              跑出来的真实日志和抓包结果
+    └─ 踩坑记录.md              踩过的坑 + 排查过程 + 取舍理由
 ```
+
+`iotd_core` 只放生产代码；`MockSource` 和 `FileReplaySource` 在独立的 `iotd_test_support` 里，
+客户链接 SDK 时不会带上一堆只有开发和排障才用得上的东西
 
 **为什么头文件和实现分开？**
 
@@ -118,30 +152,45 @@ iot-device-sdk/
 
 ---
 
-## 架构：数据源可替换
+## 架构：两头都可替换
 
 ```text
-                    IDataSource  (抽象接口)
-                          ▲
-          ┌───────────────┼───────────────┐
-    MockSource      SerialPortSource     MqttSource
-  （无硬件自测 /      （真实串口，      （接入 broker，
-    测试注入）         Windows API）      上行发布+下行订阅）
-                          │
-                          ▼
-                    DeviceClient
-              （解析报文 → 统计 → 回调上报）
-                          │
-                          ▼
-                  TelemetryHandler
-        （示例里：打印+落盘；也可改成发 MQTT / 写数据库）
+    IDataSource  (抽象接口)                        ITelemetrySink  (抽象接口)
+          |                                                |
+  +-------+--------+                        +--------------+--------------+
+MockSource   SerialPortSource            MqttSink                     LogSink
+(无硬件自测 /  (真实串口，          (接入 broker，上报到云)    (只打日志，不联网)
+  测试注入)      Windows API)
+          |                                                |
+          +-------------------+                +-----------+
+                              v                |
+                         DeviceClient ---------+
+                  (取一帧 -> 解析 -> 校验 -> 贴标签 -> 交给出口)
 ```
 
-**设计要点**：`DeviceClient` 只依赖 `IDataSource` 接口，不知道数据从哪来，因此：
+**设计要点**：`DeviceClient` 只认两个接口，不知道数据从哪来，也不知道数据往哪去，因此：
 
-- 接入 MQTT 时**不需要修改 DeviceClient 一行代码**，只需新增一个 `MqttSource`
+- **换数据源**：模拟器 / 真实串口 / 录制回放，`DeviceClient` 一行代码不用改
+- **换上报方式**：打进日志 ↔ 发到云端，`DeviceClient` 一行代码不用改
 - 单元测试可以用 Mock 注入半包、乱码、超长帧等边界数据
-- 没有硬件也能开发和演示
+- 没有硬件、没有 broker 也能开发和演示
+
+**上下游各一个接口，是对称的**：`IDataSource` 回答"从哪读"，`ITelemetrySink` 回答"往哪发"
+
+一个真实的网关就是把它们接起来（见 `examples/mqtt_demo.cpp`）：
+
+```cpp
+iotd::MqttSink   cloud(config);      // 出口：上报到云 + 接收命令
+iotd::MockSource sensor(3000);       // 来源：模拟传感器（换 SerialPortSource 就是真硬件）
+iotd::DeviceClient client(sensor, cloud);
+
+while (!g_should_exit) {
+    client.PollOnce();               // 整条上行链路就这一行
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+}
+```
+
+**命令下行不走 `DeviceClient`** —— 命令是"事件"（立刻做一件事），遥测是"数据流"（攒起来往上发），两者语义不同，所以命令从 broker 直接进 `MqttSink::OnCommand` 虚函数，由你的子类处理
 
 ---
 
@@ -150,10 +199,11 @@ iot-device-sdk/
 | 能力 | 实现方式 | 对应现场问题 |
 |---|---|---|
 | 串口粘包/半包 | 按换行符分帧 + 缓冲区（上限 8KB 保护） | "数据偶尔缺一段" |
+| 现场问题复现 | 录原始字节块 → 按原时序回放，走同一条分帧代码 | "客户说数据不对，我这边复现不出来" |
 | 坏帧不致命 | 解析失败只记录并跳过，不退出进程 | "一帧坏数据导致服务挂掉" |
 | 错误精确定位 | JSON 解析器报告出错字符位置 | "到底哪个字节有问题" |
 | 原始内容留证 | 坏帧原样打印，不只报"解析失败" | "事后无法复现" |
-| 数据合理性校验 | 温度 -40~125℃、湿度 0~100% 边界检查 | "传感器故障导致的脏数据" |
+| 数据合理性校验 | 温度 -40~80℃、湿度 0~100% 边界检查 | "传感器故障导致的脏数据" |
 | 链路健康度 | 帧数/成功数/失败数统计 | "客户说老掉线，先看哪个指标" |
 | BOM 兼容 | 自动剥离 UTF-8 BOM | "记事本存的文件解析不了" |
 
@@ -163,6 +213,8 @@ iot-device-sdk/
 
 - [x] **M1** 数据源抽象 + 模拟源 + 串口源 + JSON 解析 + 日志 + 测试
 - [x] **M2** 接入 MQTT（libmosquitto）：上行发布、下行订阅、QoS 1、指数退避自动重连、命令回执
+- [x] **M2.5** 上报出口抽象（`ITelemetrySink`）：把 MQTT 从"数据源"改回"出口"，入站出站对称
+- [x] **M2.6** 分帧抽成 `LineFramer`：串口与录制回放共用；录制/回放走同一个字节块格式
 - [ ] **M3** 补齐 5 个示例程序（publish / subscribe / reconnect / serial_bridge / multi_device）
 - [ ] **M4** 文档：设计说明（DESIGN.md）、FAQ、排障案例集（含 Wireshark 抓包与日志证据）
 

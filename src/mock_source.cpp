@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 
 #include "iotd/logger.h"
@@ -13,7 +14,6 @@
 namespace iotd {
 namespace {
 
-// 取当前 Unix 毫秒时间戳
 std::int64_t NowMs() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -24,8 +24,6 @@ std::int64_t NowMs() {
 MockSource::MockSource(int interval_ms)
     : interval_ms_(interval_ms),
       // 用固定种子(42)：每次运行产生的"随机"数据都一样
-      // 这在调试时非常重要 —— 你能复现上一次看到的现象
-      // 如果每次数据都不同，你永远说不清"这个问题到底是不是随机的"
       rng_(42), temp_dist_(24.0, 28.0), humid_dist_(50.0, 70.0), light_dist_(400, 450) {}
 
 bool MockSource::Open(std::string& error) {
@@ -49,13 +47,11 @@ std::string MockSource::BuildFrame() {
     if (inject_corrupted_) {
         inject_corrupted_ = false;
         // 故意缺一个右花括号，模拟"串口粘包/丢字节"造成的半包
-        // 真实项目里这种情况比你想象的常见得多
         return R"({"device_id":"fish-tank-01","temp":25.1,"humid":60.2)";
     }
 
-    // 偶尔注入一帧坏数据（每 7 帧一次），
-    // 让你在正常运行时也能看到程序如何优雅处理坏报文，而不是崩溃
-    if (counter_ % 7 == 0) {
+    // 偶尔注入一帧坏数据（默认每 7 帧一次）
+    if (corrupt_every_n_ != 0 && counter_ % corrupt_every_n_ == 0) {
         return R"({"device_id":"fish-tank-01","temp":25.1,)";
     }
 
@@ -77,7 +73,7 @@ ReadResult MockSource::Poll() {
     }
 
     // 非阻塞语义：时间没到就直接返回"没数据"
-    // 这样主循环可以继续做别的事（比如检查用户有没有按 Ctrl+C）
+    // 主循环可以继续做别的事（比如检查用户有没有按 Ctrl+C）
     const std::int64_t now = NowMs();
     if (now < next_due_ms_) {
         return result; // has_data 保持 false
@@ -87,6 +83,12 @@ ReadResult MockSource::Poll() {
     result.has_data = true;
     result.frame = BuildFrame();
     return result;
+}
+
+void MockSource::SetCorruptEveryN(int every_n) {
+    if (every_n < 0)
+        throw std::invalid_argument("SetCorruptEveryN() 不接受负数");
+    corrupt_every_n_ = every_n;
 }
 
 } // namespace iotd
