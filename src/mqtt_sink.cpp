@@ -40,7 +40,8 @@ void EnsureLibraryInitialized() {
 // 后连上的会把先连上的【踢下线】，造成类似"设备反复掉线"的问题，
 std::string MakeClientId(const std::string& prefix) {
     using namespace std::chrono;
-    const auto us = duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+    const auto us =
+        duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
     return prefix + "-" + std::to_string(static_cast<long long>(us));
 }
 
@@ -110,16 +111,18 @@ bool MqttSink::Open(std::string& error) {
     // --- 第 3 步：鉴权（可选）---
     if (!config_.username.empty()) {
         ::mosquitto_username_pw_set(mosq_, config_.username.c_str(),
-                                    config_.password.empty() ? nullptr : config_.password.c_str());
+                                    config_.password.empty() ? nullptr
+                                                             : config_.password.c_str());
         // 注意这里传的是 config_ 里 std::string 的指针
         // mosquitto 内部会拷贝它，所以 config_ 生命周期 >= mosq_ 就没问题
         // 我们的 config_ 是成员变量，天然满足
     }
 
     // --- 第 4 步：配置自动重连退避 ---
-    ::mosquitto_reconnect_delay_set(mosq_, static_cast<unsigned int>(config_.reconnect_delay_sec),
-                                    static_cast<unsigned int>(config_.reconnect_delay_max_sec),
-                                    /*reconnect_exponential_backoff=*/true);
+    ::mosquitto_reconnect_delay_set(
+        mosq_, static_cast<unsigned int>(config_.reconnect_delay_sec),
+        static_cast<unsigned int>(config_.reconnect_delay_max_sec),
+        /*reconnect_exponential_backoff=*/true);
 
     // --- 第 5 步：发起异步连接 ---
     // connect_async 和 loop_start 必须成对
@@ -161,7 +164,8 @@ bool MqttSink::Open(std::string& error) {
         if (!connect_succeeded_) {
             error = "连接 broker " + config_.broker_host + ":" +
                     std::to_string(config_.broker_port) + " 超时或失败。\n" +
-                    "  请确认 broker 已启动：mosquitto -p " + std::to_string(config_.broker_port);
+                    "  请确认 broker 已启动：mosquitto -p " +
+                    std::to_string(config_.broker_port);
             ::mosquitto_loop_stop(mosq_, /*force=*/true);
             ::mosquitto_destroy(mosq_);
             mosq_ = nullptr;
@@ -226,10 +230,10 @@ void MqttSink::Close() {
         snapshot = stats_;
     }
     LOG_INFO("MQTT 已断开：" << config_.broker_host << ":" << config_.broker_port
-                             << "（统计：连接成功 " << snapshot.connect_success << " 次，收到 "
-                             << snapshot.messages_received << " 条，发布成功 "
-                             << snapshot.publish_ok << " 条，发布失败 " << snapshot.publish_failed
-                             << " 条）");
+                             << "（统计：连接成功 " << snapshot.connect_success
+                             << " 次，收到 " << snapshot.messages_received
+                             << " 条，发布成功 " << snapshot.publish_ok
+                             << " 条，发布失败 " << snapshot.publish_failed << " 条）");
 }
 
 //----------------------------------------------------------------------------
@@ -252,10 +256,11 @@ bool MqttSink::Publish(const DeviceMessage& message, std::string& error) {
     }
 
     // 同步打印日志
-    LOG_INFO("↑ 上报成功 #" << message.sequence << " temp=" << message.reading.temperature_c
+    LOG_INFO("↑ 上报成功 #" << message.sequence
+                            << " temp=" << message.reading.temperature_c
                             << "C humid=" << message.reading.humidity_pct << "% "
-                            << message.reading.light_lux << "lux 开机" << message.uptime_ms
-                            << "ms");
+                            << message.reading.light_lux << "lux 开机"
+                            << message.uptime_ms << "ms");
     return true;
 }
 
@@ -283,9 +288,9 @@ bool MqttSink::PublishRaw(const std::string& topic, const std::string& payload,
     //   payload     载荷指针
     //   qos         服务质量
     //   retain      是否保留（true 时 broker 会存住最后一条，新订阅者立刻收到）
-    const int rc =
-        ::mosquitto_publish(mosq_, /*mid=*/nullptr, topic.c_str(), static_cast<int>(payload.size()),
-                            payload.c_str(), config_.qos, /*retain=*/false);
+    const int rc = ::mosquitto_publish(mosq_, /*mid=*/nullptr, topic.c_str(),
+                                       static_cast<int>(payload.size()), payload.c_str(),
+                                       config_.qos, /*retain=*/false);
     if (rc != MOSQ_ERR_SUCCESS) {
         error = std::string("发布到 ") + topic + " 失败：" + ::mosquitto_strerror(rc);
         {
@@ -345,8 +350,9 @@ void MqttSink::HandleConnect(int rc) {
         //   3 = 服务不可用
         //   4 = 用户名或密码错误     ← 现场最常见
         //   5 = 未授权
-        static const char* kReason[] = {"成功",       "协议版本不支持",   "客户端 ID 被拒绝",
-                                        "服务不可用", "用户名或密码错误", "未授权"};
+        static const char* kReason[] = {
+            "成功",       "协议版本不支持",   "客户端 ID 被拒绝",
+            "服务不可用", "用户名或密码错误", "未授权"};
         const char* reason = (rc >= 0 && rc <= 5) ? kReason[rc] : "未知原因";
         LOG_ERROR("broker 拒绝连接（码 " << rc << "：" << reason << "）");
         connected_ = false;
@@ -365,9 +371,9 @@ void MqttSink::HandleConnect(int rc) {
         std::lock_guard<std::mutex> lock(mutex_);
         ++stats_.connect_success;
     }
-    LOG_INFO("已连接到 broker：" << config_.broker_host << ":" << config_.broker_port << " (QoS "
-                                 << config_.qos << ")（第 " << GetStats().connect_success
-                                 << " 次成功）");
+    LOG_INFO("已连接到 broker：" << config_.broker_host << ":" << config_.broker_port
+                                 << " (QoS " << config_.qos << ")（第 "
+                                 << GetStats().connect_success << " 次成功）");
 
     // 唤醒 Open() 里等待的主线程
     {
@@ -386,7 +392,8 @@ void MqttSink::HandleConnect(int rc) {
     // 这是很多人写 MQTT 客户端时"重连后收不到消息"的根因
     // -----------------------------------------------------------------------
     const std::string topic = CommandTopic();
-    const int sub_rc = ::mosquitto_subscribe(mosq_, /*mid=*/nullptr, topic.c_str(), config_.qos);
+    const int sub_rc =
+        ::mosquitto_subscribe(mosq_, /*mid=*/nullptr, topic.c_str(), config_.qos);
     if (sub_rc != MOSQ_ERR_SUCCESS) {
         LOG_ERROR("订阅 " << topic << " 失败：" << ::mosquitto_strerror(sub_rc));
     } else {

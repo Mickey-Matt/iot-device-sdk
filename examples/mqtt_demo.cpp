@@ -64,8 +64,9 @@ public:
             const auto value = iotd::json::Parse(payload);
             cmd = iotd::json::GetString(value, "cmd", "unknown");
         } catch (const iotd::json::ParseError& e) {
-            IOTD_LOG(iotd::Logger::Level::Warn,
-                     "下发的命令不是合法 JSON（位置 " << e.position() << "）：" << e.what());
+            IOTD_LOG(iotd::Logger::Level::Warn, "下发的命令不是合法 JSON（位置 "
+                                                    << e.position() << "）："
+                                                    << e.what());
             return;
         }
 
@@ -139,14 +140,16 @@ int main(int argc, char** argv) {
     std::string error;
     if (!client.Start(error)) {
         LOG_ERROR("启动失败：" << error);
-        LOG_ERROR("提示：确认 broker 已经启动 —— 在另一个窗口执行 'mosquitto -p 1883 -v'");
+        LOG_ERROR(
+            "提示：确认 broker 已经启动 —— 在另一个窗口执行 'mosquitto -p 1883 -v'");
         return 1;
     }
 
     std::signal(SIGINT, OnSignal);
     LOG_INFO("按 Ctrl+C 退出");
     LOG_INFO("测试下行链路（推荐用 -f 文件方式，命令行传 JSON 会被 shell 吃掉双引号）：");
-    LOG_INFO("  mosquitto_pub -h localhost -t dev/fish-tank-01/cmd -f samples/cmd_feed.json");
+    LOG_INFO(
+        "  mosquitto_pub -h localhost -t dev/fish-tank-01/cmd -f samples/cmd_feed.json");
 
     // --- 主循环 ---
     while (!g_should_exit.load()) {

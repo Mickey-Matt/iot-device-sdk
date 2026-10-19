@@ -38,8 +38,8 @@ bool FileReplaySource::Open(std::string& error) {
     for (const auto& chunk : chunks_) {
         total_bytes += chunk.bytes.size();
     }
-    LOG_INFO("回放文件已载入：" << path_ << "，" << chunks_.size() << " 块，共 " << total_bytes
-                                << " 字节");
+    LOG_INFO("回放文件已载入：" << path_ << "，" << chunks_.size() << " 块，共 "
+                                << total_bytes << " 字节");
     return true;
 }
 

@@ -92,7 +92,8 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
 
     // 去掉 BOM
     if (out.size() >= 3 && static_cast<unsigned char>(out[0]) == 0xEF &&
-        static_cast<unsigned char>(out[1]) == 0xBB && static_cast<unsigned char>(out[2]) == 0xBF) {
+        static_cast<unsigned char>(out[1]) == 0xBB &&
+        static_cast<unsigned char>(out[2]) == 0xBF) {
         out.erase(0, 3);
     }
 
@@ -155,7 +156,8 @@ int CmdReplay(const std::string& path) {
     }
 
     std::cout << "\n--- 回放进度 ---\n"
-              << "字节块   : " << replay.FedChunks() << " / " << replay.ChunkCount() << "\n"
+              << "字节块   : " << replay.FedChunks() << " / " << replay.ChunkCount()
+              << "\n"
               << "丢弃字节 : " << replay.DroppedBytes() << "\n"
               << "残留半帧 : " << replay.BufferedBytes() << " 字节\n";
     // 残留半帧不为 0 是正常的：录制正好停在"帧只到一半"的位置
@@ -187,10 +189,12 @@ int CmdParse(const std::string& text, const std::string& source_label) {
 
         // 顺便演示如何按字段取值
         std::cout << "\n字段提取：\n"
-                  << "  device_id  = " << iotd::json::GetString(value, "device_id", "(缺失)")
+                  << "  device_id  = "
+                  << iotd::json::GetString(value, "device_id", "(缺失)") << "\n"
+                  << "  temp       = " << iotd::json::GetNumber(value, "temp", -999)
                   << "\n"
-                  << "  temp       = " << iotd::json::GetNumber(value, "temp", -999) << "\n"
-                  << "  humid      = " << iotd::json::GetNumber(value, "humid", -999) << "\n";
+                  << "  humid      = " << iotd::json::GetNumber(value, "humid", -999)
+                  << "\n";
         return 0;
     } catch (const iotd::json::ParseError& e) {
         // 出错时打印"第几个字符出错"，而不是笼统地说"解析失败"
@@ -261,7 +265,8 @@ int main(int argc, char** argv) {
             const std::string arg = argv[i];
             if (arg == "--record") {
                 if (i + 1 >= argc) {
-                    std::cerr << "错误：--record 后面要跟文件路径，例如 --record field.cap\n";
+                    std::cerr
+                        << "错误：--record 后面要跟文件路径，例如 --record field.cap\n";
                     return 1;
                 }
                 record_path = argv[++i];
@@ -283,8 +288,9 @@ int main(int argc, char** argv) {
             if (!recorder.Open(record_error)) {
                 std::cerr << "警告：" << record_error << "，继续运行但不录制\n";
             } else {
-                serial.SetTap(
-                    [&recorder](const char* data, std::size_t n) { recorder.OnBytes(data, n); });
+                serial.SetTap([&recorder](const char* data, std::size_t n) {
+                    recorder.OnBytes(data, n);
+                });
                 LOG_INFO("正在录制串口原始字节：" << recorder.CurrentPath());
             }
         }
@@ -292,8 +298,8 @@ int main(int argc, char** argv) {
         const int rc = RunLoop(serial, port);
 
         if (recorder.RecordedBytes() > 0) {
-            LOG_INFO("录制结束：" << recorder.CurrentPath() << "，共 " << recorder.RecordedBytes()
-                                  << " 字节");
+            LOG_INFO("录制结束：" << recorder.CurrentPath() << "，共 "
+                                  << recorder.RecordedBytes() << " 字节");
             if (recorder.LostBytes() > 0) {
                 LOG_WARN("录制期间有 " << recorder.LostBytes() << " 字节因写入失败丢失");
             }

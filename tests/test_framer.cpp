@@ -118,7 +118,8 @@ void TestTapKeepsChunkBoundary() {
     std::printf("[测试] 录制钩子：录到的是每次收到的字节块，不是切好的帧\n");
     std::vector<std::string> seen;
     iotd::LineFramer framer;
-    framer.SetTap([&seen](const char* data, std::size_t n) { seen.emplace_back(data, n); });
+    framer.SetTap(
+        [&seen](const char* data, std::size_t n) { seen.emplace_back(data, n); });
 
     AppendString(framer, "a\nb");
     AppendString(framer, "c\n");
@@ -164,7 +165,8 @@ void TestCaptureParseRejects() {
 }
 
 // 把一份录制文件按"一到就喂、喂完就取"的顺序过一遍分帧器，得到所有成形的帧
-bool ReplayFile(const std::string& path, std::vector<std::string>& frames, std::size_t& dropped) {
+bool ReplayFile(const std::string& path, std::vector<std::string>& frames,
+                std::size_t& dropped) {
     std::vector<iotd::capture::Chunk> chunks;
     std::string error;
     if (!iotd::capture::LoadFile(path, chunks, error)) {
@@ -235,7 +237,8 @@ void TestRecorderRoundTrip() {
     CHECK_EQ_STR(recorder.CurrentPath(), base + ".0");
 
     iotd::LineFramer framer;
-    framer.SetTap([&recorder](const char* data, std::size_t n) { recorder.OnBytes(data, n); });
+    framer.SetTap(
+        [&recorder](const char* data, std::size_t n) { recorder.OnBytes(data, n); });
 
     AppendString(framer, R"({"a":1})");
     AppendString(framer, "\n{\"b\":");

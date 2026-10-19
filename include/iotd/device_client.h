@@ -100,11 +100,12 @@ public:
     // 把一帧文本解析成 DeviceMessage
     // 声明为 static，因为它不需要访问任何成员变量 ——
     // 这样测试时可以直接调 DeviceClient::ParseFrame(...) 而不用构造对象
-    static bool ParseFrame(const std::string& frame, DeviceMessage& out, std::string& error);
+    static bool ParseFrame(const std::string& frame, DeviceMessage& out,
+                           std::string& error);
 
 private:
-    IDataSource& source_;    // 从哪读（借用，不拥有）
-    ITelemetrySink& sink_;   // 往哪发（借用，不拥有）
+    IDataSource& source_;  // 从哪读（借用，不拥有）
+    ITelemetrySink& sink_; // 往哪发（借用，不拥有）
     bool running_ = false;
     Stats stats_;
     std::uint64_t sequence_ = 0; // 已上报条数，用作报文序号

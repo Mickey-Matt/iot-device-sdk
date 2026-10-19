@@ -82,11 +82,11 @@ private:
 //   LOG_INFO("temp=" << t)  →  输出类似 "temp=25.3"
 // 这样就像用 std::cout 一样自然
 // ---------------------------------------------------------------------------
-#define IOTD_LOG(level, expr)                                                                      \
-    do {                                                                                           \
-        std::ostringstream _oss;                                                                   \
-        _oss << expr;                                                                              \
-        ::iotd::Logger::Instance().Log(level, _oss.str());                                         \
+#define IOTD_LOG(level, expr)                                                            \
+    do {                                                                                 \
+        std::ostringstream _oss;                                                         \
+        _oss << expr;                                                                    \
+        ::iotd::Logger::Instance().Log(level, _oss.str());                               \
     } while (false)
 // 外面套 do { } while(false) 是宏的经典防御写法：
 // 保证它在 if/else 里当成一条语句，不会因为缺分号而出错

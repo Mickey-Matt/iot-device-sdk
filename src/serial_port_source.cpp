@@ -39,10 +39,10 @@ bool SerialPortSource::Open(std::string& error) {
 
     handle_ = ::CreateFileA(device_path.c_str(),
                             GENERIC_READ | GENERIC_WRITE, // 读写权限
-                            0,                            // 独占打开：串口不能被两个程序同时用
-                            nullptr,                      // 默认安全属性
-                            OPEN_EXISTING,                // 必须已存在，不创建
-                            0,                            // 同步模式
+                            0,             // 独占打开：串口不能被两个程序同时用
+                            nullptr,       // 默认安全属性
+                            OPEN_EXISTING, // 必须已存在，不创建
+                            0,             // 同步模式
                             nullptr);
 
     if (handle_ == INVALID_HANDLE_VALUE) {
@@ -150,8 +150,8 @@ ReadResult SerialPortSource::Poll() {
 
     if (bytes_read > 0) {
         framer_.Append(chunk, bytes_read);
-        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 " << framer_.BufferedBytes()
-                              << " 字节");
+        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 "
+                              << framer_.BufferedBytes() << " 字节");
     }
 
     // --- 第 2 步：从分帧器里取一整帧 ---

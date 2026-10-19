@@ -23,7 +23,8 @@ std::int64_t SteadyNowMs() {
 
 } // namespace
 
-CaptureRecorder::CaptureRecorder(std::string path, std::size_t max_segment_bytes, int max_segments)
+CaptureRecorder::CaptureRecorder(std::string path, std::size_t max_segment_bytes,
+                                 int max_segments)
     : base_path_(std::move(path)),
       // 段数至少为 1，否则换段时取模会除以 0
       max_segment_bytes_(max_segment_bytes == 0 ? 1024 : max_segment_bytes),
@@ -82,7 +83,8 @@ void CaptureRecorder::OnBytes(const char* data, std::size_t n) {
         // 磁盘满、目录被删、权限没了：停录制，别把数据链路一起拖下水
         active_ = false;
         lost_bytes_ += n;
-        LOG_ERROR("录制写入失败，已停止录制：" << current_path_ << "（本块 " << n << " 字节未记录）");
+        LOG_ERROR("录制写入失败，已停止录制：" << current_path_ << "（本块 " << n
+                                               << " 字节未记录）");
         return;
     }
 

@@ -52,7 +52,9 @@ bool Unescape(const std::string& text, std::string& out, std::string& error) {
             case 'x': {
                 unsigned int hi = 0;
                 unsigned int lo = 0;
-                if (i + 2 >= text.size() || !HexValue(text[i + 1], hi) || !HexValue(text[i + 2], lo)) {
+                const bool has_hex = i + 2 < text.size() && HexValue(text[i + 1], hi) &&
+                                     HexValue(text[i + 2], lo);
+                if (!has_hex) {
                     error = "\\x 后面要跟两位十六进制数";
                     return false;
                 }
@@ -60,9 +62,7 @@ bool Unescape(const std::string& text, std::string& out, std::string& error) {
                 i += 2;
                 break;
             }
-            default:
-                error = std::string("不认识的转义 \\") + next;
-                return false;
+            default: error = std::string("不认识的转义 \\") + next; return false;
         }
     }
     return true;

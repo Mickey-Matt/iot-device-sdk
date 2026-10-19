@@ -33,8 +33,9 @@ bool NearlyEqual(double a, double b, double eps = 1e-9) {
 
 void TestValidMessage() {
     std::printf("[测试] 正常报文解析\n");
-    const std::string frame = R"({"device_id":"fish-tank-01","timestamp_ms":1700000000000,)"
-                              R"("temp":25.6,"humid":62.5,"light_lux":420})";
+    const std::string frame =
+        R"({"device_id":"fish-tank-01","timestamp_ms":1700000000000,)"
+        R"("temp":25.6,"humid":62.5,"light_lux":420})";
 
     iotd::DeviceMessage msg;
     std::string err;
@@ -60,7 +61,8 @@ void TestJsonBasics() {
     const auto nested = iotd::json::Parse(R"({"a":{"b":{"c":7}}})");
     CHECK(nested.IsObject());
     const auto& inner = std::get<iotd::json::Object>(nested.data).at("a");
-    CHECK(iotd::json::GetNumber(std::get<iotd::json::Object>(inner.data).at("b"), "c", -1) == 7.0);
+    CHECK(iotd::json::GetNumber(std::get<iotd::json::Object>(inner.data).at("b"), "c",
+                                -1) == 7.0);
 
     // 数组
     const auto arr = iotd::json::Parse("[1, 2, 3]");
@@ -121,18 +123,19 @@ void TestDeviceClientRejectsBadData() {
     CHECK(!iotd::DeviceClient::ParseFrame("[1,2,3]", msg, err));
 
     // 温度超范围（模拟传感器故障）
-    CHECK(
-        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":110.0,"humid":50})", msg, err));
+    CHECK(!iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":110.0,"humid":50})",
+                                          msg, err));
 
     // 湿度超范围
-    CHECK(
-        !iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":150})", msg, err));
+    CHECK(!iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":150})",
+                                          msg, err));
 
     // 空帧（串口空闲时可能出现）
     CHECK(!iotd::DeviceClient::ParseFrame("", msg, err));
 
     // 合法数据必须通过（防止前面的判断写得太严把好数据也挡了）
-    CHECK(iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":50})", msg, err));
+    CHECK(iotd::DeviceClient::ParseFrame(R"({"device_id":"d1","temp":25.0,"humid":50})",
+                                         msg, err));
 }
 
 void TestDumpRoundTrip() {
