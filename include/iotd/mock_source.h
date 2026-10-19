@@ -24,7 +24,7 @@ public:
 
     // 测试用的开关：让下一帧故意产出一段坏的 JSON
     void InjectCorruptedFrame() { inject_corrupted_ = true; }
-    void SetCorruptEveryN(int frequence);
+    void SetCorruptEveryN(int);
 
 private:
     std::string BuildFrame();

@@ -85,12 +85,10 @@ ReadResult MockSource::Poll() {
     return result;
 }
 
-void MockSource::SetCorruptEveryN(int frequence) {
-    if (frequence >= 0)
-        corrupt_every_n_ = frequence;
-    else
-        throw std::invalid_argument("SetCorruptEveryN()的参数不能为负数");
-    return;
+void MockSource::SetCorruptEveryN(int every_n) {
+    if (every_n < 0)
+        throw std::invalid_argument("SetCorruptEveryN() 不接受负数");
+    corrupt_every_n_ = every_n;
 }
 
 } // namespace iotd
