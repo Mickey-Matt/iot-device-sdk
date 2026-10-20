@@ -19,7 +19,7 @@ public:
 
     bool Open(std::string& error) override;
     void Close() override;
-    ReadResult Poll() override;
+    ByteChunk Poll() override;
     std::string Name() const override { return "MockSource"; }
 
     // 测试用的开关：让下一帧故意产出一段坏的 JSON

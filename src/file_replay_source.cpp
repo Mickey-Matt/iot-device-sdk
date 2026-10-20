@@ -12,8 +12,9 @@
 namespace iotd {
 namespace {
 
-// 最后一块喂完后再等这么久，给"结尾是个半帧"的录制一个自然收尾的机会
-constexpr std::int64_t kDrainMs = 300;
+// 最后一块喂完后再等这么久，让驱动循环把同一块里剩下的帧取完
+// 每轮 PollOnce 只取一帧，20ms 一轮，500ms 够取二十几帧
+constexpr std::int64_t kDrainMs = 500;
 
 std::int64_t SteadyNowMs() {
     using namespace std::chrono;
@@ -28,7 +29,6 @@ bool FileReplaySource::Open(std::string& error) {
     if (!capture::LoadFile(path_, chunks_, error)) {
         return false;
     }
-    framer_.Reset();
     next_chunk_ = 0;
     start_ms_ = SteadyNowMs();
     last_feed_ms_ = start_ms_;
@@ -47,8 +47,8 @@ void FileReplaySource::Close() {
     opened_ = false;
 }
 
-ReadResult FileReplaySource::Poll() {
-    ReadResult result;
+ByteChunk FileReplaySource::Poll() {
+    ByteChunk result;
     if (!opened_) {
         result.error = "回放文件尚未打开";
         return result;
@@ -56,27 +56,12 @@ ReadResult FileReplaySource::Poll() {
 
     const std::int64_t elapsed = SteadyNowMs() - start_ms_;
 
-    // 时间没到的块一块都不喂，两次读取之间的间隔也要照原样重现
+    // 时间没到的块一块都不吐，两次读取之间的间隔要照原样重现
+    // 同一轮到期的块合成一次读取：串口一次 ReadFile 也是把当时缓冲里的字节全拿走
     while (next_chunk_ < chunks_.size() && elapsed >= chunks_[next_chunk_].at_ms) {
-        const capture::Chunk& chunk = chunks_[next_chunk_];
-        framer_.Append(chunk.bytes.data(), chunk.bytes.size());
+        result.bytes += chunks_[next_chunk_].bytes;
         last_feed_ms_ = SteadyNowMs();
         ++next_chunk_;
-    }
-
-    // 超限判定发生在 Next() 里，所以要把计数器的前后差当成检测手段：
-    // 差值不为 0 说明这一轮把缓冲区整块丢了，而此时必然没有帧可交
-    const std::size_t dropped_before = framer_.DroppedBytes();
-    const std::optional<std::string> frame = framer_.Next();
-    if (framer_.DroppedBytes() != dropped_before) {
-        result.error = "缓冲区超过 " + std::to_string(framer_.MaxBufferBytes()) +
-                       " 字节仍未收到换行符，已丢弃（可能是波特率不匹配导致乱码）";
-        return result;
-    }
-
-    if (frame) {
-        result.has_data = true;
-        result.frame = std::move(*frame);
     }
     return result;
 }
@@ -88,9 +73,6 @@ std::string FileReplaySource::Name() const {
 bool FileReplaySource::Finished() const {
     if (next_chunk_ < chunks_.size()) {
         return false;
-    }
-    if (framer_.BufferedBytes() == 0) {
-        return true;
     }
     return SteadyNowMs() - last_feed_ms_ >= kDrainMs;
 }

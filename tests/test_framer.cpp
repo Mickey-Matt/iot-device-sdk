@@ -4,9 +4,11 @@
 // 分帧和录制的测试：半包、粘包、CRLF、超限各来一遍，再把五个现场样本回放一遍
 // ===========================================================================
 
+#include <chrono>
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "iotd/capture.h"
@@ -14,6 +16,7 @@
 #include "iotd/device_client.h"
 #include "iotd/file_replay_source.h"
 #include "iotd/line_framer.h"
+#include "iotd/log_sink.h"
 #include "test_check.h"
 
 #if defined(_WIN32)
@@ -102,16 +105,36 @@ void TestOversize() {
     AppendString(framer, std::string(10, 'A'));
     CHECK(!framer.Next().has_value());
     CHECK_EQ(framer.BufferedBytes(), 10);
-    CHECK_EQ(framer.DroppedBytes(), 0);
+    CHECK_EQ(framer.OverflowBytes(), 0);
 
     AppendString(framer, std::string(10, 'B')); // 攒到 20 字节，超过 16
     CHECK(!framer.Next().has_value());
     CHECK_EQ(framer.BufferedBytes(), 0);
-    CHECK_EQ(framer.DroppedBytes(), 20);
+    CHECK_EQ(framer.OverflowBytes(), 20);
 
     AppendString(framer, "ok\n");
     CHECK_EQ_STR(TakeFrame(framer), "ok");
-    CHECK_EQ(framer.DroppedBytes(), 20); // 丢过的字节数不会因为恢复而清零
+    CHECK_EQ(framer.OverflowBytes(), 20); // 丢过的字节数不会因为恢复而清零
+}
+
+void TestHalfFrameTimeout() {
+    std::printf("[测试] 半帧超时：等到死也不来的后半截，到点就丢掉\n");
+    // 超时设 5ms，测起来不用等太久
+    iotd::LineFramer framer(8 * 1024, 5);
+
+    AppendString(framer, R"({"temp":)");
+    CHECK_EQ(framer.BufferedBytes(), 8);
+    CHECK(!framer.Tick()); // 刚进来，还没超时
+    CHECK_EQ(framer.TimeoutBytes(), 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(framer.Tick());
+    CHECK_EQ(framer.BufferedBytes(), 0);
+    CHECK_EQ(framer.TimeoutBytes(), 8);
+
+    // 丢掉之后链路还能接着用
+    AppendString(framer, "ok\n");
+    CHECK_EQ_STR(TakeFrame(framer), "ok");
 }
 
 void TestTapKeepsChunkBoundary() {
@@ -181,7 +204,7 @@ bool ReplayFile(const std::string& path, std::vector<std::string>& frames,
             frames.push_back(*frame);
         }
     }
-    dropped = framer.DroppedBytes();
+    dropped = framer.OverflowBytes();
     return true;
 }
 
@@ -300,8 +323,90 @@ void TestRecorderOpenFailure() {
     recorder.Close();
 }
 
+// 测试用的假数据源：按脚本吐出字节块，不碰硬件也不碰文件
+class ScriptedSource : public iotd::IDataSource {
+public:
+    bool Open(std::string&) override { return true; }
+    void Close() override {}
+
+    iotd::ByteChunk Poll() override {
+        iotd::ByteChunk result;
+        if (next_ < chunks_.size()) {
+            result.bytes = chunks_[next_++];
+            return result;
+        }
+        result.error = error_after_script_;
+        return result;
+    }
+
+    std::string Name() const override { return "Scripted"; }
+
+    void AddChunk(std::string bytes) { chunks_.push_back(std::move(bytes)); }
+    void FailWithAfterScript(std::string message) {
+        error_after_script_ = std::move(message);
+    }
+
+private:
+    std::vector<std::string> chunks_;
+    std::size_t next_ = 0;
+    std::string error_after_script_; // 脚本吐完之后每轮都报这个错
+};
+
+void TestClientPipeline() {
+    std::printf("[测试] 整条链路：字节块进来，帧出去，超限单独计数\n");
+
+    const std::string good = R"({"device_id":"d1","temp":25.0,"humid":50.0})";
+    ScriptedSource source;
+    // 第一块：两帧粘在一起；第二块：一大团没有换行的垃圾
+    source.AddChunk(good + "\n" + good + "\n");
+    source.AddChunk(std::string(40, 'X'));
+
+    iotd::LineFramer framer(16); // 上限调到 16 字节，第二块才能触发超限
+    iotd::LogSink sink("test");
+    iotd::DeviceClient client(source, framer, sink);
+
+    std::string error;
+    CHECK(client.Start(error));
+
+    // 第一块里有两帧，一次 PollOnce 只取一帧，所以前两次都要有产出
+    CHECK(client.PollOnce() == iotd::ProcessResult::Ok);
+    CHECK(client.PollOnce() == iotd::ProcessResult::Ok);
+    CHECK(client.PollOnce() == iotd::ProcessResult::NoData);
+
+    const auto& stats = client.GetStats();
+    CHECK_EQ(stats.frames_received, 2);
+    CHECK_EQ(stats.frames_ok, 2);
+    CHECK_EQ(stats.framer_overflow, 1);
+    CHECK_EQ(stats.dropped_bytes, 40);
+    CHECK_EQ(stats.transport_errors, 0);
+
+    client.Stop();
+}
+
+void TestTransportErrorIsSeparate() {
+    std::printf("[测试] 传输错误不记到分帧头上\n");
+
+    ScriptedSource source;
+    source.FailWithAfterScript("设备已拔出");
+    iotd::LineFramer framer;
+    iotd::LogSink sink("test");
+    iotd::DeviceClient client(source, framer, sink);
+
+    std::string error;
+    CHECK(client.Start(error));
+    CHECK(client.PollOnce() == iotd::ProcessResult::SourceError);
+
+    const auto& stats = client.GetStats();
+    CHECK_EQ(stats.transport_errors, 1);
+    CHECK_EQ(stats.framer_overflow, 0);
+    CHECK_EQ(stats.framer_timeout, 0);
+    CHECK_EQ(stats.dropped_bytes, 0);
+
+    client.Stop();
+}
+
 void TestFileReplaySource() {
-    std::printf("[测试] FileReplaySource：走自己的时间线，第一块就交半个帧\n");
+    std::printf("[测试] FileReplaySource：只吐字节，帧由外面的分帧器切\n");
 
     const std::string path = "replay_tmp.txt";
     {
@@ -316,13 +421,16 @@ void TestFileReplaySource() {
     CHECK(source.Open(error));
     CHECK_EQ(source.ChunkCount(), 2);
 
-    const iotd::ReadResult first = source.Poll();
-    // 两块的时间戳都是 0，第一轮就全喂进去了，所以一次就能拿到完整一帧
-    CHECK(first.has_data);
-    CHECK_EQ_STR(first.frame, R"({"temp":25.1})");
-    CHECK(first.error.empty());
+    // 两块的时间戳都是 0，第一轮就会合成一次读取交出来
+    const iotd::ByteChunk chunk = source.Poll();
+    CHECK(chunk.error.empty());
+    CHECK_EQ_STR(chunk.bytes, std::string(R"({"temp":25.)") + "1}\n");
+    CHECK_EQ(source.FedChunks(), 2);
 
-    CHECK(source.Finished());
+    iotd::LineFramer framer;
+    framer.Append(chunk.bytes.data(), chunk.bytes.size());
+    CHECK_EQ_STR(TakeFrame(framer), R"({"temp":25.1})");
+
     std::remove(path.c_str());
 }
 
@@ -340,6 +448,7 @@ int main() {
     TestCarriageReturn();
     TestEmptyLine();
     TestOversize();
+    TestHalfFrameTimeout();
     TestTapKeepsChunkBoundary();
     TestCaptureEscapeRoundTrip();
     TestCaptureParseRejects();
@@ -347,6 +456,8 @@ int main() {
     TestRecorderRoundTrip();
     TestRecorderRotation();
     TestRecorderOpenFailure();
+    TestClientPipeline();
+    TestTransportErrorIsSeparate();
     TestFileReplaySource();
 
     std::printf("===== 测试结束：通过 %d，失败 %d =====\n", g_passed, g_failed);

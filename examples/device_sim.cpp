@@ -25,6 +25,7 @@
 
 #include "iotd/data_source.h"
 #include "iotd/device_client.h"
+#include "iotd/line_framer.h"
 #include "iotd/log_sink.h"
 #include "iotd/logger.h"
 #include "iotd/mock_source.h"
@@ -115,10 +116,14 @@ int main(int argc, char** argv) {
     // 想真上云，把这一行换成 iotd::MqttSink sink(config); 就行
     iotd::LogSink sink;
 
-    iotd::DeviceClient client(*source, sink);
+    // 分帧器：把数据源吐出的字节切成一条条完整报文
+    // 显式建出来而不是塞进 DeviceClient 内部，是为了录制和测试能挂到它上面
+    iotd::LineFramer framer;
+
+    iotd::DeviceClient client(*source, framer, sink);
     // 注意这里传的是 *source（解引用成引用）
-    // DeviceClient 只是"借用"这两个对象，不负责销毁它们 ——
-    // mock_source / serial_source / sink 都是栈上的局部变量，它们会自己析构
+    // DeviceClient 只是"借用"这三个对象，不负责销毁它们 ——
+    // mock_source / serial_source / framer / sink 都是栈上的局部变量，它们会自己析构
 
     std::string error;
     if (!client.Start(error)) {
@@ -145,8 +150,9 @@ int main(int argc, char** argv) {
     const auto& stats = client.GetStats();
     LOG_INFO("=== 运行结束 ===");
     LOG_INFO("总计：收到 " << stats.frames_received << " 帧，解析成功 " << stats.frames_ok
-                           << " 帧，失败 " << stats.parse_failed << " 帧，数据源错误 "
-                           << stats.source_errors << " 次");
+                           << " 帧，失败 " << stats.parse_failed << " 帧，传输错误 "
+                           << stats.transport_errors << " 次，分帧丢弃 "
+                           << stats.dropped_bytes << " 字节");
 
     // 打印"成功率"这个指标，是运维思维的体现：
     // 光说"跑完了"没有价值，说"成功率 87.5%"才能让人判断链路健不健康

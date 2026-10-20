@@ -28,9 +28,9 @@ std::int64_t NowMs() {
 
 } // namespace
 
-DeviceClient::DeviceClient(IDataSource& source, ITelemetrySink& sink)
-    : source_(source), sink_(sink) {}
-// 两个依赖都是引用，不拷贝也不接管所有权 ——
+DeviceClient::DeviceClient(IDataSource& source, IFramer& framer, ITelemetrySink& sink)
+    : source_(source), framer_(framer), sink_(sink) {}
+// 三个依赖都是引用，不拷贝也不接管所有权 ——
 // 传进来的对象是栈上的局部变量还是堆上的，由调用方决定
 
 bool DeviceClient::Start(std::string& error) {
@@ -47,6 +47,8 @@ bool DeviceClient::Start(std::string& error) {
         source_.Close();
         return false;
     }
+    // 上一轮残留的半帧不能带进新连接，否则新连接的第一帧会顶着一截旧字节
+    framer_.Reset();
     running_ = true;
     LOG_INFO("DeviceClient 已启动，数据源：" << source_.Name());
     return true;
@@ -64,8 +66,8 @@ void DeviceClient::Stop() {
     LOG_INFO("DeviceClient 已停止。统计：收到 "
              << stats_.frames_received << " 帧，成功 " << stats_.frames_ok
              << " 帧，解析失败 " << stats_.parse_failed << " 帧，上报失败 "
-             << stats_.publish_failed << " 帧，数据源错误 " << stats_.source_errors
-             << " 次");
+             << stats_.publish_failed << " 帧，传输错误 " << stats_.transport_errors
+             << " 次，分帧丢弃 " << stats_.dropped_bytes << " 字节");
 }
 
 bool DeviceClient::ParseFrame(const std::string& frame, DeviceMessage& out,
@@ -124,29 +126,62 @@ ProcessResult DeviceClient::PollOnce() {
         return ProcessResult::NoData;
     }
 
-    const ReadResult read = source_.Poll();
+    // 分帧器的两个累计计数器取个快照，本轮结束后用差值判断"这一轮丢没丢、丢了多少"
+    const std::size_t overflow_before = framer_.OverflowBytes();
+    const std::size_t timeout_before = framer_.TimeoutBytes();
 
-    // 数据源报错：记录并返回，由上层决定要不要重连
-    if (!read.error.empty()) {
-        ++stats_.source_errors;
-        LOG_ERROR("数据源错误：" << read.error);
-        return ProcessResult::SourceError;
+    // 半帧超时每轮都要查，不能等"读到新字节"再查：
+    // 设备发了一半就没了的时候，后面的循环一个字节都读不到
+    if (framer_.Tick()) {
+        ++stats_.framer_timeout;
+        LOG_WARN("半帧等待超时，丢弃 " << (framer_.TimeoutBytes() - timeout_before)
+                                       << " 字节未成帧的数据");
     }
 
-    if (!read.has_data) {
-        return ProcessResult::NoData;
+    ProcessResult result = ProcessResult::NoData;
+
+    const ByteChunk chunk = source_.Poll();
+    // 传输层报错：记录并返回，由上层决定要不要重连
+    if (!chunk.error.empty()) {
+        ++stats_.transport_errors;
+        LOG_ERROR("数据源错误：" << chunk.error);
+        result = ProcessResult::SourceError;
+    } else {
+        if (!chunk.bytes.empty()) {
+            framer_.Append(chunk.bytes.data(), chunk.bytes.size());
+            LOG_DEBUG("收到 " << chunk.bytes.size() << " 字节，分帧缓冲区现有 "
+                              << framer_.BufferedBytes() << " 字节");
+        }
+
+        const std::optional<std::string> frame = framer_.Next();
+        // 超限只会在"缓冲区里找不到换行符"的那一次 Next() 里发生，所以此刻必然没有帧可交
+        if (framer_.OverflowBytes() != overflow_before) {
+            ++stats_.framer_overflow;
+            LOG_ERROR("缓冲区超过上限仍未收到换行符，丢弃 "
+                      << (framer_.OverflowBytes() - overflow_before)
+                      << " 字节（可能是波特率不匹配导致乱码）");
+        }
+        if (frame) {
+            result = HandleFrame(*frame);
+        }
     }
 
+    stats_.dropped_bytes += (framer_.OverflowBytes() - overflow_before) +
+                            (framer_.TimeoutBytes() - timeout_before);
+    return result;
+}
+
+ProcessResult DeviceClient::HandleFrame(const std::string& frame) {
     ++stats_.frames_received;
     stats_.last_frame_ms = NowMs();
 
     DeviceMessage message;
     std::string parse_error;
-    if (!ParseFrame(read.frame, message, parse_error)) {
+    if (!ParseFrame(frame, message, parse_error)) {
         ++stats_.parse_failed;
         // 把坏帧原样打出来 —— 排查时你最需要看到的就是"它到底长什么样"
         // 只打印"解析失败"而不打印内容，是新手最常犯的日志错误
-        LOG_WARN("丢弃一帧坏数据：" << parse_error << " | 原始内容: " << read.frame);
+        LOG_WARN("丢弃一帧坏数据：" << parse_error << " | 原始内容: " << frame);
         return ProcessResult::ParseFailed;
     }
 

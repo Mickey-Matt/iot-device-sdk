@@ -1,7 +1,7 @@
 // ===========================================================================
 // src/serial_port_source.cpp
 //
-// Windows 串口读写，切帧交给 LineFramer
+// Windows 串口读写，只搬字节，切帧交给 LineFramer
 // ===========================================================================
 
 #include "iotd/serial_port_source.h"
@@ -111,7 +111,6 @@ bool SerialPortSource::Open(std::string& error) {
     // 清空可能残留的旧数据
     ::PurgeComm(handle_, PURGE_RXCLEAR | PURGE_TXCLEAR);
 
-    framer_.Reset();
     LOG_INFO("串口已打开：" << Name());
     return true;
 #else
@@ -128,11 +127,10 @@ void SerialPortSource::Close() {
         LOG_INFO("串口已关闭：" << Name());
     }
 #endif
-    framer_.Reset();
 }
 
-ReadResult SerialPortSource::Poll() {
-    ReadResult result;
+ByteChunk SerialPortSource::Poll() {
+    ByteChunk result;
 
 #if defined(_WIN32)
     if (handle_ == INVALID_HANDLE_VALUE) {
@@ -140,33 +138,17 @@ ReadResult SerialPortSource::Poll() {
         return result;
     }
 
-    // --- 第 1 步：把硬件缓冲区里的字节搬进分帧器 ---
-    char chunk[512];
+    // 一次能读多少读多少，读回几块碎字节都由调用方去拼
+    // 512 字节是权衡：小一点响应快，大一点系统调用少
+    char buf[512];
     DWORD bytes_read = 0;
-    if (!::ReadFile(handle_, chunk, sizeof(chunk), &bytes_read, nullptr)) {
+    if (!::ReadFile(handle_, buf, sizeof(buf), &bytes_read, nullptr)) {
         result.error = "ReadFile 失败（设备可能已被拔出）";
         return result;
     }
 
     if (bytes_read > 0) {
-        framer_.Append(chunk, bytes_read);
-        LOG_DEBUG("串口收到 " << bytes_read << " 字节，缓冲区现有 "
-                              << framer_.BufferedBytes() << " 字节");
-    }
-
-    // --- 第 2 步：从分帧器里取一整帧 ---
-    const std::size_t dropped_before = framer_.DroppedBytes();
-    const std::optional<std::string> frame = framer_.Next();
-
-    if (framer_.DroppedBytes() != dropped_before) {
-        result.error = "缓冲区超过 " + std::to_string(framer_.MaxBufferBytes()) +
-                       " 字节仍未收到换行符，已丢弃（可能是波特率不匹配导致乱码）";
-        return result;
-    }
-
-    if (frame) {
-        result.has_data = true;
-        result.frame = std::move(*frame);
+        result.bytes.assign(buf, bytes_read);
     }
     return result;
 #else

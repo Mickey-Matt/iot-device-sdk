@@ -32,6 +32,7 @@
 
 #include "iotd/device_client.h"
 #include "iotd/json.h"
+#include "iotd/line_framer.h"
 #include "iotd/logger.h"
 #include "iotd/mock_source.h"
 #include "iotd/mqtt_sink.h"
@@ -135,7 +136,8 @@ int main(int argc, char** argv) {
     iotd::MockSource sensor(3000);
     // sensor.SetCorruptEveryN(-2); // 坏帧注入频率
 
-    iotd::DeviceClient client(sensor, device);
+    iotd::LineFramer framer;
+    iotd::DeviceClient client(sensor, framer, device);
 
     std::string error;
     if (!client.Start(error)) {

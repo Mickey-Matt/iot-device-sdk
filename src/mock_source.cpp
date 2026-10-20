@@ -64,8 +64,8 @@ std::string MockSource::BuildFrame() {
     return buf;
 }
 
-ReadResult MockSource::Poll() {
-    ReadResult result;
+ByteChunk MockSource::Poll() {
+    ByteChunk result;
 
     if (!opened_) {
         result.error = "MockSource 尚未打开";
@@ -76,12 +76,13 @@ ReadResult MockSource::Poll() {
     // 主循环可以继续做别的事（比如检查用户有没有按 Ctrl+C）
     const std::int64_t now = NowMs();
     if (now < next_due_ms_) {
-        return result; // has_data 保持 false
+        return result;
     }
     next_due_ms_ = now + interval_ms_;
 
-    result.has_data = true;
-    result.frame = BuildFrame();
+    result.bytes = BuildFrame();
+    // 补上帧边界：模拟器也走和串口完全相同的分帧路径，否则测的就不是同一条代码
+    result.bytes.push_back('\n');
     return result;
 }
 

@@ -3,15 +3,19 @@
 //
 // 【这是整个项目最重要的一课】
 //
-// 问题：数据可能来自真实串口，也可能来自模拟器
+// 问题：数据可能来自真实串口，也可能来自模拟器或录制文件
 //       如果 DeviceClient 里写死"读串口"，那没有硬件时程序完全没法测
 //
 // 解决：把"从哪读数据"抽象成一个接口，DeviceClient 只认接口，不认实现
 //
 //           IDataSource  (接口 / 抽象基类)
 //                 ▲
-//        ┌────────┴────────┐
-//   MockSource      SerialPortSource
+//        ┌────────┼────────┐
+//   MockSource  SerialPortSource  FileReplaySource
+//
+// 【注意这里返回的是字节，不是"一帧"】
+//   分帧属于协议层，串口、回放、模拟器必须共用同一套分帧实现，
+//   各自切一套的话，回放里跑通的代码和现场跑的就不是同一条路径了
 //
 // 【注意这里没有 MqttSource】
 //   MQTT 是数据的【去向】，不是来源 —— 云平台不会凭空产生传感器读数
@@ -19,7 +23,7 @@
 //   一条流水线的两头各有一个接口，这才是完整的形状：
 //
 //     IDataSource ──▶ DeviceClient ──▶ ITelemetrySink
-//      （从哪来）       解析/校验/贴标签       （往哪去）
+//      （从哪来）    分帧/解析/校验/贴标签      （往哪去）
 //
 // 这个技巧叫"面向接口编程"或"依赖倒置"
 // 好处有三个，你在面试里可以这样讲：
@@ -37,11 +41,10 @@
 
 namespace iotd {
 
-// 一次读取的结果
-struct ReadResult {
-    bool has_data = false; // 这次有没有读到数据
-    std::string frame;     // 读到的一整帧（已经去掉行尾换行符）
-    std::string error;     // 出错信息，空字符串表示没错
+// 一次读取拿到的原始字节。长度任意：可能半条消息，也可能几条拼在一起
+struct ByteChunk {
+    std::string bytes;
+    std::string error; // 传输层错误（设备拔出、串口没开、文件打不开），空表示没错
 };
 
 class IDataSource {
@@ -63,9 +66,9 @@ public:
     virtual bool Open(std::string& error) = 0;
     virtual void Close() = 0;
 
-    // 非阻塞读一帧：有数据就返回，没数据就立刻返回（has_data=false）
+    // 非阻塞读：这次没数据就返回 empty 的 bytes
     // 为什么不设计成"阻塞直到有数据"？因为那样程序就没法优雅退出了
-    virtual ReadResult Poll() = 0;
+    virtual ByteChunk Poll() = 0;
 
     // 给人类看的名字，日志和报错时用
     virtual std::string Name() const = 0;

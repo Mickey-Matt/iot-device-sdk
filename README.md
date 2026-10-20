@@ -119,9 +119,10 @@ iot-device-sdk/
 │   ├─ types.h                 公共数据结构：SensorReading / DeviceMessage
 │   ├─ json.h                  JSON 解析器接口
 │   ├─ logger.h                日志器
-│   ├─ data_source.h           数据源抽象接口（数据从哪来）
+│   ├─ data_source.h           数据源抽象接口：只搬字节
+│   ├─ framer.h                分帧接口：字节流切成一条条报文
 │   ├─ telemetry_sink.h        上报出口抽象接口（数据往哪去）
-│   ├─ line_framer.h           分帧：字节流切成一条条完整消息
+│   ├─ line_framer.h           按换行符分帧的实现
 │   ├─ capture.h               录制文件格式（读、写、转义）
 │   ├─ capture_recorder.h      把串口收到的字节块录成文件
 │   ├─ file_replay_source.h    按录制时的时间线回放字节块
@@ -129,13 +130,13 @@ iot-device-sdk/
 │   ├─ serial_port_source.h    串口数据源（Windows API）
 │   ├─ mqtt_sink.h             MQTT 出口：上报遥测 + 接收命令
 │   ├─ log_sink.h              只打日志的出口（不联网）
-│   └─ device_client.h         设备客户端：SDK 主入口
+│   └─ device_client.h         设备客户端：分帧 → 解析 → 贴标签 → 交给出口
 ├─ src/                        实现（使用者不需要看）
 ├─ examples/device_sim.cpp     示例程序：模拟设备持续上报
 ├─ examples/mqtt_demo.cpp      示例程序：完整的网关（采集 → 上报 → 收命令）
 ├─ tools/iot_debug_main.cpp    调试工具：命令行多子命令
 ├─ tests/test_json.cpp         单元测试：JSON 解析与报文校验
-├─ tests/test_framer.cpp       单元测试：分帧、录制、回放
+├─ tests/test_framer.cpp       单元测试：分帧、录制、回放、整条链路
 ├─ samples/                    示例报文（含正常与损坏两种）
 │   └─ captures/               五个现场病例的录制文件
 └─ docs/
@@ -152,28 +153,34 @@ iot-device-sdk/
 
 ---
 
-## 架构：两头都可替换
+## 架构：三层各管一段
 
 ```text
-    IDataSource  (抽象接口)                        ITelemetrySink  (抽象接口)
-          |                                                |
-  +-------+--------+                        +--------------+--------------+
-MockSource   SerialPortSource            MqttSink                     LogSink
-(无硬件自测 /  (真实串口，          (接入 broker，上报到云)    (只打日志，不联网)
-  测试注入)      Windows API)
-          |                                                |
-          +-------------------+                +-----------+
-                              v                |
-                         DeviceClient ---------+
-                  (取一帧 -> 解析 -> 校验 -> 贴标签 -> 交给出口)
+IDataSource                        ITelemetrySink
+├─ MockSource                      ├─ MqttSink
+├─ SerialPortSource                └─ LogSink
+└─ FileReplaySource                       ▲
+        │                                 │
+        ▼                                 │
+    IFramer（分帧）──▶ DeviceClient ──────┘
+                 解析 -> 校验 -> 贴标签 -> 交给出口
 ```
 
-**设计要点**：`DeviceClient` 只认两个接口，不知道数据从哪来，也不知道数据往哪去，因此：
+| 层 | 谁负责 | 只管什么 |
+|---|---|---|
+| 传输层 | `IDataSource` | 把字节搬进来，一个字节都不解释 |
+| 协议层 | `IFramer` + `DeviceClient` | 切帧、解析、校验、贴标签 |
+| 出口层 | `ITelemetrySink` | 把报文发出去，不问从哪来 |
+
+**设计要点**：`DeviceClient` 只认三个接口，不知道数据从哪来，也不知道数据往哪去，因此：
 
 - **换数据源**：模拟器 / 真实串口 / 录制回放，`DeviceClient` 一行代码不用改
+- **换分帧规则**：现在是按换行符切，将来换成定长头或带长度字段的协议，只要实现 `IFramer`
 - **换上报方式**：打进日志 ↔ 发到云端，`DeviceClient` 一行代码不用改
 - 单元测试可以用 Mock 注入半包、乱码、超长帧等边界数据
 - 没有硬件、没有 broker 也能开发和演示
+
+**分帧器为什么攥在调用方手里、不藏进 `DeviceClient`**：录制要挂在分帧器上，录的必须是"切帧之前"的原始字节块。藏在内部，外面就够不着了
 
 **上下游各一个接口，是对称的**：`IDataSource` 回答"从哪读"，`ITelemetrySink` 回答"往哪发"
 
@@ -182,7 +189,9 @@ MockSource   SerialPortSource            MqttSink                     LogSink
 ```cpp
 iotd::MqttSink   cloud(config);      // 出口：上报到云 + 接收命令
 iotd::MockSource sensor(3000);       // 来源：模拟传感器（换 SerialPortSource 就是真硬件）
-iotd::DeviceClient client(sensor, cloud);
+iotd::LineFramer framer;             // 分帧：字节流 -> 一条条报文
+
+iotd::DeviceClient client(sensor, framer, cloud);
 
 while (!g_should_exit) {
     client.PollOnce();               // 整条上行链路就这一行
@@ -199,6 +208,8 @@ while (!g_should_exit) {
 | 能力 | 实现方式 | 对应现场问题 |
 |---|---|---|
 | 串口粘包/半包 | 按换行符分帧 + 缓冲区（上限 8KB 保护） | "数据偶尔缺一段" |
+| 半帧不残留 | 一截半帧等超过 1 秒就丢掉并计数 | "设备发了一半就没电了，下一帧被拼成乱码" |
+| 错误分类统计 | 传输错误 / 缓冲超限 / 半帧超时分开计数 | "到底是串口坏了还是报文格式错" |
 | 现场问题复现 | 录原始字节块 → 按原时序回放，走同一条分帧代码 | "客户说数据不对，我这边复现不出来" |
 | 坏帧不致命 | 解析失败只记录并跳过，不退出进程 | "一帧坏数据导致服务挂掉" |
 | 错误精确定位 | JSON 解析器报告出错字符位置 | "到底哪个字节有问题" |
@@ -215,6 +226,7 @@ while (!g_should_exit) {
 - [x] **M2** 接入 MQTT（libmosquitto）：上行发布、下行订阅、QoS 1、指数退避自动重连、命令回执
 - [x] **M2.5** 上报出口抽象（`ITelemetrySink`）：把 MQTT 从"数据源"改回"出口"，入站出站对称
 - [x] **M2.6** 分帧抽成 `LineFramer`：串口与录制回放共用；录制/回放走同一个字节块格式
+- [x] **M2.7** 接口分层：数据源只返回字节，`IFramer` 独立成接口，错误分类统计，半帧超时
 - [ ] **M3** 补齐 5 个示例程序（publish / subscribe / reconnect / serial_bridge / multi_device）
 - [ ] **M4** 文档：设计说明（DESIGN.md）、FAQ、排障案例集（含 Wireshark 抓包与日志证据）
 

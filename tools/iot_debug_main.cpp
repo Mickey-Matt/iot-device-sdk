@@ -35,6 +35,7 @@
 #include "iotd/device_client.h"
 #include "iotd/file_replay_source.h"
 #include "iotd/json.h"
+#include "iotd/line_framer.h"
 #include "iotd/log_sink.h"
 #include "iotd/logger.h"
 #include "iotd/mock_source.h"
@@ -113,13 +114,14 @@ bool ReadTextFile(const std::string& path, std::string& out, std::string& error)
 // 这是"消除重复"的工程习惯 —— 如果三个子命令各写一遍循环，
 // 以后要改退出逻辑就得改三处，早晚会漏一处
 //
+// 分帧器由调用方传进来，因为它可能挂着录制钩子
 // finished 为空表示一直跑到按 Ctrl+C；回放这类"有终点"的数据源传自己的结束判断
-int RunLoop(iotd::IDataSource& source, const std::string& tag,
+int RunLoop(iotd::IDataSource& source, iotd::LineFramer& framer, const std::string& tag,
             const std::function<bool()>& finished = {}) {
     // 出口用 LogSink：调试工具只关心"数据长什么样"，不需要真的上云
     // tag 会作为日志前缀，这样几路输出能分得清
     iotd::LogSink sink(tag);
-    iotd::DeviceClient client(source, sink);
+    iotd::DeviceClient client(source, framer, sink);
 
     std::string error;
     if (!client.Start(error)) {
@@ -141,7 +143,10 @@ int RunLoop(iotd::IDataSource& source, const std::string& tag,
               << "收到帧数 : " << s.frames_received << "\n"
               << "解析成功 : " << s.frames_ok << "\n"
               << "解析失败 : " << s.parse_failed << "\n"
-              << "数据源错误: " << s.source_errors << "\n";
+              << "传输错误 : " << s.transport_errors << "\n"
+              << "缓冲超限 : " << s.framer_overflow << " 次\n"
+              << "半帧超时 : " << s.framer_timeout << " 次\n"
+              << "分帧丢弃 : " << s.dropped_bytes << " 字节\n";
     // 这个统计表就是"技术支持"的交付物雏形：
     // 客户问"为什么我的数据丢了"，你把这张表拍给他，
     // 一眼就能看出是链路没通（收到帧数=0）还是数据格式错（解析失败数高）
@@ -150,7 +155,9 @@ int RunLoop(iotd::IDataSource& source, const std::string& tag,
 
 int CmdReplay(const std::string& path) {
     iotd::FileReplaySource replay(path);
-    const int rc = RunLoop(replay, "replay", [&replay] { return replay.Finished(); });
+    iotd::LineFramer framer;
+    const int rc =
+        RunLoop(replay, framer, "replay", [&replay] { return replay.Finished(); });
     if (rc != 0) {
         return rc;
     }
@@ -158,8 +165,7 @@ int CmdReplay(const std::string& path) {
     std::cout << "\n--- 回放进度 ---\n"
               << "字节块   : " << replay.FedChunks() << " / " << replay.ChunkCount()
               << "\n"
-              << "丢弃字节 : " << replay.DroppedBytes() << "\n"
-              << "残留半帧 : " << replay.BufferedBytes() << " 字节\n";
+              << "残留半帧 : " << framer.BufferedBytes() << " 字节\n";
     // 残留半帧不为 0 是正常的：录制正好停在"帧只到一半"的位置
     // 但如果它很大又是乱码，就要怀疑录制时的波特率跟设备对不上
     return 0;
@@ -247,7 +253,8 @@ int main(int argc, char** argv) {
     if (cmd == "mock") {
         const int interval = (argc >= 3) ? std::atoi(argv[2]) : 500;
         iotd::MockSource mock(interval > 0 ? interval : 500);
-        return RunLoop(mock, "mock");
+        iotd::LineFramer framer;
+        return RunLoop(mock, framer, "mock");
     }
 
     if (cmd == "serial") {
@@ -280,6 +287,7 @@ int main(int argc, char** argv) {
         }
 
         iotd::SerialPortSource serial(port, baud);
+        iotd::LineFramer framer;
 
         // 录制只挂在 serial 上：mock 产出的本来就是整帧，录下来也没有分帧证据
         iotd::CaptureRecorder recorder(record_path);
@@ -288,14 +296,14 @@ int main(int argc, char** argv) {
             if (!recorder.Open(record_error)) {
                 std::cerr << "警告：" << record_error << "，继续运行但不录制\n";
             } else {
-                serial.SetTap([&recorder](const char* data, std::size_t n) {
+                framer.SetTap([&recorder](const char* data, std::size_t n) {
                     recorder.OnBytes(data, n);
                 });
                 LOG_INFO("正在录制串口原始字节：" << recorder.CurrentPath());
             }
         }
 
-        const int rc = RunLoop(serial, port);
+        const int rc = RunLoop(serial, framer, port);
 
         if (recorder.RecordedBytes() > 0) {
             LOG_INFO("录制结束：" << recorder.CurrentPath() << "，共 "
